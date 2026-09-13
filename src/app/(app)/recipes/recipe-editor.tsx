@@ -6,6 +6,7 @@ import { CATEGORIES, UNITS, categoryLabel, ingredientFactor, unitLabel, type Con
 import { UnitHint } from "./unit-hint";
 import { fmtMinutes } from "@/lib/dates";
 import { IngredientInput } from "@/components/ingredient-input";
+import { DragGrip, SortableList } from "@/components/sortable-list";
 
 type Line = RecipeInput["ingredients"][number] & { key: string };
 type Step = { key: string; text: string };
@@ -21,14 +22,6 @@ function splitSteps(text: string) {
     .split(/\r?\n/)
     .map((l) => l.trim().replace(/^(\d+\s*[.):-]|[-*•])\s*/, ""))
     .filter(Boolean);
-}
-
-function move<T>(list: T[], index: number, delta: number) {
-  const to = index + delta;
-  if (to < 0 || to >= list.length) return list;
-  const next = [...list];
-  [next[index], next[to]] = [next[to], next[index]];
-  return next;
 }
 
 export function RecipeEditor({
@@ -140,15 +133,21 @@ export function RecipeEditor({
 
       {/* Ingredients */}
       <div className="card flex flex-col gap-3">
-        <h2 className="font-semibold">Ingredients</h2>
-        {lines.map((l, index) => {
-          const known = byName.get(l.name.trim().toLowerCase());
-          return (
-            <div key={l.key} className="flex gap-2 border-b border-border pb-3 last:border-0">
-              <div className="flex flex-col">
-                <button type="button" className="btn h-7 w-7 p-0 text-muted" onClick={() => setLines(move(lines, index, -1))} disabled={index === 0} aria-label="Move up">↑</button>
-                <button type="button" className="btn h-7 w-7 p-0 text-muted" onClick={() => setLines(move(lines, index, 1))} disabled={index === lines.length - 1} aria-label="Move down">↓</button>
-              </div>
+        <div>
+          <h2 className="font-semibold">Ingredients</h2>
+          {lines.length > 1 && <p className="text-xs text-muted">Drag ⠿ to reorder</p>}
+        </div>
+        <SortableList
+          id="recipe-ingredients"
+          items={lines}
+          onReorder={setLines}
+          className="flex flex-col"
+          itemClassName="border-b border-border py-3 first:pt-0 last:border-0"
+          renderItem={(l, index, handle) => {
+            const known = byName.get(l.name.trim().toLowerCase());
+            return (
+            <div className="flex gap-2">
+              <DragGrip {...handle} label={`Drag ingredient ${index + 1}${l.name ? ` (${l.name})` : ""}`} className="h-9 w-7" />
 
               <div className="grid flex-1 grid-cols-[1fr_4.5rem_5.5rem] items-start gap-2">
                 <IngredientInput catalog={catalog} value={l.name} onChange={(name) => updateLine(l.key, { name })} />
@@ -180,10 +179,11 @@ export function RecipeEditor({
                 )}
               </div>
 
-              <button type="button" className="btn h-7 w-7 p-0 text-muted" aria-label="Remove ingredient" onClick={() => setLines(lines.filter((x) => x.key !== l.key))}>✕</button>
+              <button type="button" className="btn h-9 w-7 p-0 text-muted" aria-label="Remove ingredient" onClick={() => setLines((ls) => ls.filter((x) => x.key !== l.key))}>✕</button>
             </div>
-          );
-        })}
+            );
+          }}
+        />
         <button type="button" className="btn-ghost" onClick={() => setLines([...lines, blankLine()])}>+ Ingredient</button>
       </div>
 
@@ -245,11 +245,21 @@ function StepsEditor({ steps, setSteps }: { steps: Step[]; setSteps: (s: Step[])
     <div className="card flex flex-col gap-3">
       <div>
         <h2 className="font-semibold">Steps</h2>
-        <p className="text-xs text-muted">Enter starts a new step · Shift+Enter for a line break · pasting a whole method splits it into steps</p>
+        <p className="text-xs text-muted">
+          Enter starts a new step · Shift+Enter for a line break · pasting a whole method splits it into steps
+          {steps.length > 1 && " · drag ⠿ to reorder"}
+        </p>
       </div>
-      <ol className="flex flex-col gap-2">
-        {steps.map((s, index) => (
-          <li key={s.key} className="flex items-start gap-2">
+      <SortableList
+        id="recipe-steps"
+        as="ol"
+        items={steps}
+        onReorder={setSteps}
+        className="flex flex-col gap-2"
+        itemClassName="flex items-start gap-1.5"
+        renderItem={(s, index, handle) => (
+          <>
+            <DragGrip {...handle} label={`Drag step ${index + 1}`} className="mt-1 h-8 w-6" />
             <span className="mt-1.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent-soft text-sm font-semibold text-accent">
               {index + 1}
             </span>
@@ -286,14 +296,10 @@ function StepsEditor({ steps, setSteps }: { steps: Step[]; setSteps: (s: Step[])
                 pendingFocus.current = added[added.length - 1].key;
               }}
             />
-            <div className="flex shrink-0 flex-col">
-              <button type="button" className="btn h-6 w-7 p-0 text-xs text-muted" onClick={() => setSteps(move(steps, index, -1))} disabled={index === 0} aria-label={`Move step ${index + 1} up`}>↑</button>
-              <button type="button" className="btn h-6 w-7 p-0 text-xs text-muted" onClick={() => setSteps(move(steps, index, 1))} disabled={index === steps.length - 1} aria-label={`Move step ${index + 1} down`}>↓</button>
-            </div>
-            <button type="button" className="btn mt-1 h-7 w-7 p-0 text-muted" onClick={() => remove(index)} aria-label={`Remove step ${index + 1}`}>✕</button>
-          </li>
-        ))}
-      </ol>
+            <button type="button" className="btn mt-1 h-7 w-7 shrink-0 p-0 text-muted" onClick={() => remove(index)} aria-label={`Remove step ${index + 1}`}>✕</button>
+          </>
+        )}
+      />
       <button type="button" className="btn-ghost" onClick={() => insertAfter(steps.length - 1, [""])}>+ Step</button>
     </div>
   );
