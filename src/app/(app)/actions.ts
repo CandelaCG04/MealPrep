@@ -35,6 +35,24 @@ async function ensureIngredient(name: string, unit: string, category: string) {
   return data as string;
 }
 
+/**
+ * For the pantry and shopping-list forms: find or create the ingredient, and if it
+ * already exists with a different unit or category, switch it to the chosen ones.
+ * (Recipes use ensureIngredient instead — their lines carry their own units.)
+ */
+async function ensureIngredientAs(name: string, unit: string, category: string) {
+  const supabase = await db();
+  const id = await ensureIngredient(name, unit, category);
+  const { data: current } = await supabase.from("ingredients").select("unit, category").eq("id", id).single();
+  if (current && current.unit !== unit) {
+    check(await supabase.rpc("change_ingredient_unit", { p_ingredient_id: id, p_unit: unit }));
+  }
+  if (current && current.category !== category) {
+    check(await supabase.from("ingredients").update({ category }).eq("id", id));
+  }
+  return id;
+}
+
 async function catalog(): Promise<Ingredient[]> {
   const supabase = await db();
   const { data } = await supabase.from("ingredients").select("id, name, unit, category").order("name");
@@ -51,11 +69,11 @@ function refreshAll() {
 
 export async function addPantryItem(fd: FormData) {
   const supabase = await db();
-  const id = await ensureIngredient(str(fd, "name"), str(fd, "unit") || "pc", str(fd, "category") || "other");
+  const id = await ensureIngredientAs(str(fd, "name"), str(fd, "unit") || "pc", str(fd, "category") || "other");
   check(await supabase.rpc("add_stock", {
     p_ingredient_id: id,
     p_amount: num(fd, "quantity"),
-    p_location: str(fd, "location") || "pantry",
+    p_location: null,
     p_auto_restock: fd.get("auto_restock") === "on",
   }));
   refreshAll();
@@ -359,7 +377,7 @@ export async function buyItem(fd: FormData) {
 export async function addExtra(fd: FormData) {
   const supabase = await db();
   const name = str(fd, "name");
-  const ingredientId = await ensureIngredient(name, str(fd, "unit") || "pc", str(fd, "category") || "other");
+  const ingredientId = await ensureIngredientAs(name, str(fd, "unit") || "pc", str(fd, "category") || "other");
   check(await supabase.from("shopping_extras").insert({ name, ingredient_id: ingredientId, quantity: num(fd, "quantity") }));
   refreshAll();
 }

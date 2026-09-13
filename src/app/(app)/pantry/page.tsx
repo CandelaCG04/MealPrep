@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { CATEGORIES, LOCATIONS, categoryLabel, unitLabel, type Ingredient, type PantryItem } from "@/lib/types";
+import { CATEGORIES, categoryLabel, unitLabel, type Ingredient, type PantryItem } from "@/lib/types";
 import { CategorySelect } from "@/components/category-select";
 import {
   addIngredientToList,
@@ -15,7 +15,6 @@ import { IngredientFields } from "@/components/ingredient-input";
 import { aiEnabled } from "@/lib/ai";
 import { QuickAdd } from "./quick-add";
 
-const LOCATION_TAG = { pantry: "cupboard", fridge: "❄️ fridge", freezer: "🧊 freezer" } as const;
 
 export default async function PantryPage() {
   const supabase = await createClient();
@@ -48,13 +47,7 @@ export default async function PantryPage() {
         <summary className="cursor-pointer font-medium">Add to pantry</summary>
         <form action={addPantryItem} className="mt-3 grid grid-cols-2 gap-3">
           <IngredientFields catalog={ingredients ?? []} quantityPlaceholder="some" />
-          <div>
-            <label className="label" htmlFor="location">Where</label>
-            <select className="input" id="location" name="location">
-              {LOCATIONS.map((l) => <option key={l} value={l}>{l === "pantry" ? "cupboard" : l}</option>)}
-            </select>
-          </div>
-          <label className="flex items-center gap-2 self-end pb-2 text-sm">
+          <label className="col-span-2 flex items-center gap-2 text-sm">
             <input type="checkbox" name="auto_restock" />
             Add to shopping list when I run out
           </label>
@@ -73,12 +66,7 @@ export default async function PantryPage() {
               {group.map((item) => (
                 <li key={item.id} className="flex flex-col gap-1 px-4 py-2">
                   <div className="flex items-center gap-2">
-                    <span className="flex-1">
-                      {item.ingredients.name}
-                      {item.location !== "pantry" && (
-                        <span className="ml-2 rounded-full bg-background px-2 py-0.5 text-xs text-muted">{LOCATION_TAG[item.location]}</span>
-                      )}
-                    </span>
+                    <span className="flex-1">{item.ingredients.name}</span>
                     <form action={setPantryQuantity} className="flex items-center gap-1">
                       <input type="hidden" name="id" value={item.id} />
                       <input

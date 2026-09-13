@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { CATEGORIES, UNITS, categoryLabel, unitLabel, type Ingredient } from "@/lib/types";
+import { CATEGORIES, UNITS, categoryLabel, unitFactor, unitLabel, type Ingredient } from "@/lib/types";
 
 /** Spellings that should count as the same ingredient: case, accents, plurals. */
 function variants(name: string) {
@@ -152,10 +152,19 @@ export function IngredientFields({
   const known = findExact(catalog, name);
   const nameId = useId();
 
+  // Picking an existing ingredient pre-fills its unit and category (both still editable).
+  const [syncedFor, setSyncedFor] = useState<string>();
+  if (known && known.id !== syncedFor) {
+    setSyncedFor(known.id);
+    setUnit(known.unit);
+    setCategory(known.category);
+  }
+  const unitChanged = known && unit !== known.unit;
+
   // React resets the form after a successful action; clear our controlled state too.
   useEffect(() => {
     const form = ref.current?.closest("form");
-    const reset = () => { setName(""); setUnit(defaultUnit); setCategory("other"); };
+    const reset = () => { setName(""); setUnit(defaultUnit); setCategory("other"); setSyncedFor(undefined); };
     form?.addEventListener("reset", reset);
     return () => form?.removeEventListener("reset", reset);
   }, [defaultUnit]);
@@ -172,32 +181,36 @@ export function IngredientFields({
       </div>
       <div>
         <label className="label" htmlFor={`${nameId}-u`}>Unit</label>
-        {known ? (
-          <>
-            <input type="hidden" name="unit" value={known.unit} />
-            <div className="input bg-background text-muted" id={`${nameId}-u`}>{unitLabel(known.unit)}</div>
-          </>
-        ) : (
-          <select className="input px-2" id={`${nameId}-u`} name="unit" value={unit} onChange={(e) => setUnit(e.target.value)}>
-            {UNITS.map((u) => <option key={u} value={u}>{unitLabel(u)}</option>)}
-          </select>
-        )}
+        <select className="input px-2" id={`${nameId}-u`} name="unit" value={unit} onChange={(e) => setUnit(e.target.value)}>
+          {[...new Set([unit, ...UNITS])].map((u) => <option key={u} value={u}>{unitLabel(u)}</option>)}
+        </select>
       </div>
-      {known ? (
-        <input type="hidden" name="category" value={known.category} />
-      ) : (
-        name.trim() && (
-          <div className="col-span-3">
-            <label className="label" htmlFor={`${nameId}-c`}>Category (new ingredient)</label>
-            <select className="input" id={`${nameId}-c`} name="category" value={category} onChange={(e) => {
-                setCategory(e.target.value);
-                if (e.target.value === "cooked") setUnit("portion"); // leftovers are counted in portions
-              }}>
-              {CATEGORIES.map((c) => <option key={c} value={c}>{categoryLabel(c)}</option>)}
-            </select>
-          </div>
-        )
+
+      {unitChanged && (
+        <p className="col-span-3 -mt-1 rounded-lg bg-warn-soft px-2 py-1 text-xs text-warn">
+          The pantry will count {known.name} in <b>{unitLabel(unit)}</b> instead of {unitLabel(known.unit)}.{" "}
+          {unitFactor(known.unit, unit) !== null
+            ? "Any amount already stocked is converted."
+            : "Those units can't be converted, so what you enter replaces any amount already stocked."}{" "}
+          Recipes keep their own units.
+        </p>
       )}
+
+      <div className="col-span-3">
+        <label className="label" htmlFor={`${nameId}-c`}>Category</label>
+        <select
+          className="input"
+          id={`${nameId}-c`}
+          name="category"
+          value={category}
+          onChange={(e) => {
+            setCategory(e.target.value);
+            if (e.target.value === "cooked" && !known) setUnit("portion"); // leftovers are counted in portions
+          }}
+        >
+          {[...new Set([...CATEGORIES, category])].map((c) => <option key={c} value={c}>{categoryLabel(c)}</option>)}
+        </select>
+      </div>
     </div>
   );
 }
