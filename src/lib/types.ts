@@ -13,6 +13,17 @@ export function unitFactor(from: string, to: string): number | null {
   return a && b && a[0] === b[0] ? a[1] / b[1] : null;
 }
 
+/** e.g. 30 ml of Lime juice comes from 1 pc of Limes. */
+export type IngredientSource = {
+  id: string;
+  ingredient_id: string;
+  amount: number;
+  unit: string;
+  source_ingredient_id: string;
+  source_amount: number;
+  source_unit: string;
+};
+
 export type Conversion = {
   id: string;
   ingredient_id: string;
@@ -126,7 +137,15 @@ export type RecipeIngredientStatus = {
   position: number;
   on_hand: number | null;
   in_pantry: boolean;
-  have: boolean;
+  have: boolean; // includes having enough of the source ("made from")
+  // "Made from" another ingredient, e.g. Lime juice <- Limes. All null when there's no source.
+  source_name: string | null;
+  source_unit: string | null; // source's pantry unit
+  source_needed: number | null; // source pantry units to cover what's missing (1 batch)
+  source_on_hand: number | null;
+  have_via_source: boolean;
+  source_factor: number | null; // source pantry units per pantry unit of this ingredient
+  source_in_pantry: boolean;
 };
 
 export type ShoppingListRow = {

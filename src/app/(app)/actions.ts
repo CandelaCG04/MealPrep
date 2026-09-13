@@ -338,6 +338,49 @@ export async function saveConversion(input: ConversionInput): Promise<{ error: s
   return { conversion: data };
 }
 
+export type SourceInput = {
+  ingredient_id: string;
+  amount: number;
+  unit: string;
+  source_name: string;
+  source_amount: number;
+  source_unit: string;
+  source_category: string;
+};
+
+/** "30 ml of Lime juice comes from 1 lime": create or replace the ingredient's source. */
+export async function saveIngredientSource(input: SourceInput): Promise<{ error: string } | { ok: true }> {
+  if (!(input.amount > 0) || !(input.source_amount > 0)) return { error: "Enter both amounts." };
+  if (!input.source_name.trim()) return { error: "Choose what it's made from." };
+  try {
+    const supabase = await db();
+    const sourceId = await ensureIngredient(input.source_name, stockUnitFor(input.source_unit), input.source_category || "produce");
+    if (sourceId === input.ingredient_id) return { error: "An ingredient can't be made from itself." };
+    const { error } = await supabase.from("ingredient_sources").upsert(
+      {
+        ingredient_id: input.ingredient_id,
+        amount: input.amount,
+        unit: input.unit,
+        source_ingredient_id: sourceId,
+        source_amount: input.source_amount,
+        source_unit: input.source_unit,
+      },
+      { onConflict: "ingredient_id" },
+    );
+    if (error) return { error: error.message };
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+  refreshAll();
+  return { ok: true };
+}
+
+export async function deleteIngredientSource(ingredientId: string) {
+  const supabase = await db();
+  check(await supabase.from("ingredient_sources").delete().eq("ingredient_id", ingredientId));
+  refreshAll();
+}
+
 export async function deleteConversion(id: string) {
   const supabase = await db();
   check(await supabase.from("ingredient_conversions").delete().eq("id", id));

@@ -2,37 +2,63 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { fmtQty, type RecipeIngredientStatus, type RecipeSummary } from "@/lib/types";
+import { fmtQty, type Ingredient, type RecipeIngredientStatus, type RecipeSummary } from "@/lib/types";
 import { cookRecipe, planRecipe } from "../../actions";
 import { Submit } from "@/components/submit";
+import { MadeFrom, type SourceWithName } from "./made-from";
+
+type Shortfall = {
+  have: boolean;
+  missing: number | null; // in stock_unit
+  viaSource: boolean;
+  sourceNeeded: number | null; // in source_unit
+};
 
 /**
- * Mirrors the recipe_ingredient_status view's `have`, but for a scaled amount.
- * Compares in the pantry's unit; `missing` is in stock_unit.
+ * Mirrors the recipe_ingredient_status view, but for a scaled amount.
+ * Compares in the pantry unit; when the ingredient itself falls short, checks what it's made from.
  */
-function shortfall(line: RecipeIngredientStatus, factor: number): { have: boolean; missing: number | null } {
-  if (!line.in_pantry) return { have: false, missing: null };
-  if (line.on_hand === null) return { have: true, missing: null }; // untracked stock counts as enough
-  const onHand = Number(line.on_hand);
-  if (onHand <= 0) return { have: false, missing: null };
-  if (line.stock_quantity === null) return { have: true, missing: null }; // "to taste" or units can't be compared
-  const need = Number(line.stock_quantity) * factor;
-  return onHand >= need ? { have: true, missing: null } : { have: false, missing: need - onHand };
+function shortfall(line: RecipeIngredientStatus, factor: number): Shortfall {
+  const need = line.stock_quantity === null ? null : Number(line.stock_quantity) * factor;
+  const onHand = line.on_hand === null ? null : Number(line.on_hand);
+
+  let own: { have: boolean; missing: number | null };
+  if (!line.in_pantry) own = { have: false, missing: null };
+  else if (onHand === null) own = { have: true, missing: null }; // untracked stock counts as enough
+  else if (onHand <= 0) own = { have: false, missing: null };
+  else if (need === null) own = { have: true, missing: null }; // "to taste" or units can't be compared
+  else own = onHand >= need ? { have: true, missing: null } : { have: false, missing: need - onHand };
+
+  if (own.have || !line.source_name) return { ...own, viaSource: false, sourceNeeded: null };
+
+  const ownShort = need === null ? null : Math.max(need - Math.max(onHand ?? 0, 0), 0);
+  const sourceNeeded = ownShort !== null && line.source_factor !== null ? ownShort * Number(line.source_factor) : null;
+  const sourceOnHand = line.source_on_hand === null ? null : Number(line.source_on_hand);
+  const viaSource =
+    line.source_in_pantry &&
+    // tiny tolerance: ratios like 1/30 make "need exactly what you have" land a hair above it
+    (sourceOnHand === null || (sourceOnHand > 0 && (sourceNeeded === null || sourceOnHand >= sourceNeeded - 1e-9)));
+  return { have: viaSource, missing: own.missing, viaSource, sourceNeeded };
 }
 
 export function RecipeScaler({
   recipe,
   ingredients,
   planCount,
+  sources,
+  catalog,
 }: {
   recipe: RecipeSummary;
   ingredients: RecipeIngredientStatus[];
   planCount: number;
+  sources: Record<string, SourceWithName>;
+  catalog: Ingredient[];
 }) {
   const base = recipe.servings ?? 1;
   const unitWord = recipe.servings ? "portions" : "batches";
   const [amount, setAmount] = useState(base);
   const [done, setDone] = useState<Set<number>>(new Set());
+  const [editingSource, setEditingSource] = useState<string | null>(null);
   const toggleStep = (i: number) =>
     setDone((d) => {
       const next = new Set(d);
@@ -106,27 +132,67 @@ export function RecipeScaler({
       <section>
         <h2 className="mb-2 font-semibold">Ingredients</h2>
         <ul className="card divide-y divide-border p-0">
-          {lines.map((l) => (
-            <li key={l.id} className="flex items-start gap-3 px-4 py-2">
-              <span className={`mt-0.5 ${l.have ? "text-accent" : l.optional ? "text-muted" : "text-warn"}`}>
-                {l.have ? "✓" : "○"}
-              </span>
-              <div className="flex-1">
-                <span className={l.optional ? "text-muted" : ""}>
-                  {l.quantity !== null && <span className="font-medium">{fmtQty(Number(l.quantity) * factor, l.unit)} </span>}
-                  {l.name}
-                  {l.note && <span className="text-muted">, {l.note}</span>}
-                  {l.optional && <span className="text-muted"> (optional)</span>}
+          {lines.map((l) => {
+            const editing = editingSource === l.ingredient_id;
+            const sourceUnit = l.source_unit ?? undefined;
+            return (
+              <li key={l.id} className="flex items-start gap-3 px-4 py-2">
+                <span className={`mt-0.5 ${l.have ? "text-accent" : l.optional ? "text-muted" : "text-warn"}`}>
+                  {l.have ? "✓" : "○"}
                 </span>
-                {!l.have && l.in_pantry && l.on_hand !== null && Number(l.on_hand) > 0 && (
-                  <div className="text-xs text-muted">
-                    have {fmtQty(l.on_hand, l.stock_unit)}
-                    {l.missing !== null && ` · need ${fmtQty(l.missing, l.stock_unit)} more`}
-                  </div>
-                )}
-              </div>
-            </li>
-          ))}
+                <div className="min-w-0 flex-1">
+                  <span className={l.optional ? "text-muted" : ""}>
+                    {l.quantity !== null && <span className="font-medium">{fmtQty(Number(l.quantity) * factor, l.unit)} </span>}
+                    {l.name}
+                    {l.note && <span className="text-muted">, {l.note}</span>}
+                    {l.optional && <span className="text-muted"> (optional)</span>}
+                  </span>
+
+                  {!l.have && l.in_pantry && l.on_hand !== null && Number(l.on_hand) > 0 && (
+                    <div className="text-xs text-muted">
+                      have {fmtQty(l.on_hand, l.stock_unit)}
+                      {l.missing !== null && ` · need ${fmtQty(l.missing, l.stock_unit)} more`}
+                    </div>
+                  )}
+
+                  {l.source_name && !editing && (l.viaSource || !l.have) && (
+                    <div className={`text-xs ${l.viaSource ? "text-accent" : "text-muted"}`}>
+                      {l.viaSource ? "from " : "or from "}
+                      {l.source_name}
+                      {l.sourceNeeded !== null && ` · ${l.viaSource ? "uses" : "needs"} ${fmtQty(l.sourceNeeded, sourceUnit)}`}
+                      {!l.viaSource &&
+                        (!l.source_in_pantry
+                          ? " (none in pantry)"
+                          : l.source_on_hand !== null
+                            ? ` (have ${fmtQty(l.source_on_hand, sourceUnit)})`
+                            : "")}
+                      {" · "}
+                      <button type="button" className="underline" onClick={() => setEditingSource(l.ingredient_id)}>
+                        edit
+                      </button>
+                    </div>
+                  )}
+
+                  {!l.source_name && !l.have && !l.optional && !editing && (
+                    <button type="button" className="text-xs text-muted underline" onClick={() => setEditingSource(l.ingredient_id)}>
+                      Made from something you have?
+                    </button>
+                  )}
+
+                  <MadeFrom
+                    key={`${l.ingredient_id}-${sources[l.ingredient_id]?.id ?? "new"}`}
+                    ingredientId={l.ingredient_id}
+                    ingredientName={l.name}
+                    defaultUnit={l.stock_unit}
+                    source={sources[l.ingredient_id]}
+                    catalog={catalog}
+                    open={editing}
+                    onOpenChange={(o) => setEditingSource(o ? l.ingredient_id : null)}
+                  />
+                </div>
+              </li>
+            );
+          })}
         </ul>
       </section>
 
@@ -138,7 +204,7 @@ export function RecipeScaler({
             {scaled && ` Amounts written in the steps are for ${base} ${unitWord}.`}
           </p>
           <ol className="card flex flex-col gap-1 p-2">
-            {recipe.steps.map((step, i) => {
+            {recipe.steps.map((stepText, i) => {
               const isDone = done.has(i);
               return (
                 <li key={i}>
@@ -155,7 +221,7 @@ export function RecipeScaler({
                     >
                       {isDone ? "✓" : i + 1}
                     </span>
-                    <span className={`pt-0.5 leading-relaxed whitespace-pre-line ${isDone ? "line-through" : ""}`}>{step}</span>
+                    <span className={`pt-0.5 leading-relaxed whitespace-pre-line ${isDone ? "line-through" : ""}`}>{stepText}</span>
                   </button>
                 </li>
               );
