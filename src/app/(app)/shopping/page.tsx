@@ -17,7 +17,7 @@ export default async function ShoppingPage() {
   const [{ data: list }, { data: legacyExtras }, { data: plans }, { data: catalog }] = await Promise.all([
     supabase.from("shopping_list").select("*").returns<ShoppingListRow[]>(),
     supabase.from("shopping_extras").select("*").is("ingredient_id", null).order("created_at").returns<ShoppingExtra[]>(),
-    supabase.from("planned_meals").select("id, recipe_id, batches, recipes(title)").order("created_at").returns<PlannedMeal[]>(),
+    supabase.from("planned_meals").select("id, recipe_id, batches, recipes(title, servings)").order("created_at").returns<PlannedMeal[]>(),
     supabase.from("ingredients").select("id, name, unit, category").order("name").returns<Ingredient[]>(),
   ]);
 
@@ -119,7 +119,11 @@ export default async function ShoppingPage() {
               <li key={p.id} className="flex items-center justify-between px-4 py-2">
                 <Link href={`/recipes/${p.recipe_id}`}>
                   {p.recipes.title}
-                  {Number(p.batches) !== 1 && <span className="text-muted"> × {fmtQty(p.batches)}</span>}
+                  <span className="text-muted">
+                    {p.recipes.servings
+                      ? ` · ${Math.round(Number(p.batches) * p.recipes.servings)} portions`
+                      : Number(p.batches) !== 1 && ` × ${fmtQty(p.batches)}`}
+                  </span>
                 </Link>
                 <form action={unplanMeal}>
                   <input type="hidden" name="id" value={p.id} />

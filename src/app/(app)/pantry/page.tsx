@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { LOCATIONS, fmtQty, unitLabel, type Ingredient, type PantryItem } from "@/lib/types";
+import { LOCATIONS, unitLabel, type Ingredient, type PantryItem } from "@/lib/types";
 import {
   addIngredientToList,
   addPantryItem,
@@ -74,7 +74,7 @@ export default async function PantryPage() {
                         type="number"
                         step="any"
                         min="0"
-                        defaultValue={item.quantity === null ? "" : fmtQty(item.quantity)}
+                        defaultValue={item.quantity === null ? "" : Number(item.quantity)}
                         placeholder="some"
                         aria-label={`${item.ingredients.name} amount`}
                       />

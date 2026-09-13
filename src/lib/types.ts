@@ -88,7 +88,7 @@ export type PlannedMeal = {
   id: string;
   recipe_id: string;
   batches: number;
-  recipes: { title: string };
+  recipes: { title: string; servings: number | null };
 };
 
 const UNIT_LABELS: Record<string, [singular: string, plural: string]> = {
@@ -108,7 +108,10 @@ export function unitLabel(unit: string, amount?: number) {
 /** Postgres numeric comes back as a string; normalise for display. */
 export function fmtQty(q: number | string | null | undefined, unit?: string) {
   if (q === null || q === undefined) return "";
-  const n = Number(q);
-  const s = Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/\.?0+$/, "");
+  // Scaled amounts get messy (333.333 g): fewer decimals the bigger the number.
+  const raw = Number(q);
+  const decimals = Math.abs(raw) >= 100 ? 0 : Math.abs(raw) >= 10 ? 1 : 2;
+  const n = Number(raw.toFixed(decimals));
+  const s = String(n);
   return unit ? `${s} ${unitLabel(unit, n)}` : s;
 }
