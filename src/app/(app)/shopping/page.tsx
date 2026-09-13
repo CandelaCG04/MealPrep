@@ -9,9 +9,10 @@ import {
   type ShoppingExtra,
   type ShoppingListRow,
 } from "@/lib/types";
-import { addExtra, buyItem, removeExtra, removeFromList, unplanMeal } from "../actions";
+import { addExtra, removeExtra, unplanMeal } from "../actions";
 import { Submit } from "@/components/submit";
 import { IngredientFields } from "@/components/ingredient-input";
+import { ShoppingItem } from "./shopping-item";
 
 export default async function ShoppingPage() {
   const supabase = await createClient();
@@ -51,39 +52,7 @@ export default async function ShoppingPage() {
           <h2 className="mb-2 font-semibold">{categoryLabel(group.category)}</h2>
           <ul className="card divide-y divide-border p-0">
             {group.items.map((item) => (
-              <li key={item.ingredient_id} className="flex items-center gap-3 px-4 py-3">
-                <form action={buyItem}>
-                  <input type="hidden" name="ingredient_id" value={item.ingredient_id} />
-                  <input type="hidden" name="amount" value={item.to_buy ?? ""} />
-                  <Submit
-                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 border-accent text-accent hover:bg-accent-soft"
-                    aria-label={`Bought ${item.name}`}
-                    title="Bought — adds it to the pantry"
-                    pendingText="✓"
-                  >
-                    {""}
-                  </Submit>
-                </form>
-                <div className="flex-1">
-                  <div>
-                    <span className="font-medium">{item.name}</span>
-                    <span className="text-muted"> · {item.to_buy !== null ? fmtQty(item.to_buy, item.unit) : "some"}</span>
-                  </div>
-                  <div className="text-xs text-muted">{reason(item)}</div>
-                </div>
-                {(item.manual || item.restock) && !item.planned_short && (
-                  <form action={removeFromList}>
-                    <input type="hidden" name="ingredient_id" value={item.ingredient_id} />
-                    <Submit
-                      className="btn px-2 text-muted"
-                      aria-label={`Remove ${item.name} from list`}
-                      title={item.restock ? "Remove and stop auto-adding this item" : "Remove from list"}
-                    >
-                      ✕
-                    </Submit>
-                  </form>
-                )}
-              </li>
+              <ShoppingItem key={item.ingredient_id} item={item} reason={reason(item)} />
             ))}
           </ul>
         </section>

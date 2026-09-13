@@ -1,6 +1,7 @@
 "use client";
 
-import { useOptimistic, useState, useTransition, type HTMLAttributes, type Ref } from "react";
+import { useOptimistic, useState, type HTMLAttributes, type Ref } from "react";
+import { SaveError as SaveErrorText, fd, useAction } from "@/components/use-action";
 import { CATEGORIES, categoryLabel, fmtQty, unitLabel, type PantryItem } from "@/lib/types";
 import {
   addIngredientToList,
@@ -14,32 +15,6 @@ import {
 
 /** Units you count one at a time get − / + buttons. */
 const COUNT_UNITS = new Set(["pc", "portion", "can", "pack", "slice", "bunch", "clove"]);
-
-function fd(fields: Record<string, string | number | null | undefined>) {
-  const data = new FormData();
-  for (const [k, v] of Object.entries(fields)) data.set(k, v === null || v === undefined ? "" : String(v));
-  return data;
-}
-
-/** Runs a server action in a transition; a failure flags the card instead of crashing the page. */
-function useAction() {
-  const [pending, start] = useTransition();
-  const [failed, setFailed] = useState(false);
-  const run = (fn: () => Promise<unknown>) =>
-    start(async () => {
-      try {
-        await fn();
-        setFailed(false);
-      } catch {
-        setFailed(true); // optimistic values revert automatically when the transition ends
-      }
-    });
-  return { pending, failed, run };
-}
-
-function SaveError() {
-  return <p role="alert" className="basis-full pl-8 text-xs text-danger">Couldn&apos;t save — check your connection and try again.</p>;
-}
 
 export type DragHandle = { ref: Ref<HTMLButtonElement>; props: HTMLAttributes<HTMLButtonElement> };
 
@@ -125,7 +100,7 @@ export function PantryCard({ item, handle, overlay }: { item: PantryItem; handle
           )}
         </ItemMenu>
       )}
-      {failed && <SaveError />}
+      {failed && <SaveErrorText className="basis-full pl-8" />}
     </div>
   );
 }
@@ -182,7 +157,7 @@ export function RanOutCard({ item, onList }: { item: PantryItem; onList: boolean
         </div>
       )}
 
-      {failed && <SaveError />}
+      {failed && <SaveErrorText className="basis-full pl-8" />}
     </div>
   );
 }
