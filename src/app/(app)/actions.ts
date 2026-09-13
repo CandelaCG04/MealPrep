@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { parsePantryText, parseRecipe, type ParsedRecipe, type RecipeSource } from "@/lib/ai";
-import { stockUnitFor, unitFactor, type Ingredient } from "@/lib/types";
+import { stockUnitFor, unitFactor, type Conversion, type Ingredient } from "@/lib/types";
 
 function str(fd: FormData, key: string) {
   const v = fd.get(key);
@@ -283,6 +283,28 @@ export async function saveRecipe(input: RecipeInput): Promise<{ error: string } 
 
   refreshAll();
   redirect(`/recipes/${recipeId}`);
+}
+
+export type ConversionInput = Omit<Conversion, "id">;
+
+/** Create or replace an ingredient's conversion for one recipe unit. */
+export async function saveConversion(input: ConversionInput): Promise<{ error: string } | { conversion: Conversion }> {
+  if (!(input.amount > 0) || !(input.equals_amount > 0)) return { error: "Enter both amounts." };
+  const supabase = await db();
+  const { data, error } = await supabase
+    .from("ingredient_conversions")
+    .upsert(input, { onConflict: "ingredient_id,unit" })
+    .select("id, ingredient_id, unit, amount, equals_amount, equals_unit")
+    .single<Conversion>();
+  if (error) return { error: error.message };
+  refreshAll();
+  return { conversion: data };
+}
+
+export async function deleteConversion(id: string) {
+  const supabase = await db();
+  check(await supabase.from("ingredient_conversions").delete().eq("id", id));
+  refreshAll();
 }
 
 export async function deleteRecipe(fd: FormData) {

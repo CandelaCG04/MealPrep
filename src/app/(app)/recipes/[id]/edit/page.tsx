@@ -1,16 +1,17 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import type { Ingredient, RecipeIngredientStatus, RecipeSummary } from "@/lib/types";
+import type { Conversion, Ingredient, RecipeIngredientStatus, RecipeSummary } from "@/lib/types";
 import { RecipeEditor } from "../../recipe-editor";
 
 export default async function EditRecipePage({ params }: PageProps<"/recipes/[id]/edit">) {
   const { id } = await params;
   const supabase = await createClient();
-  const [{ data: recipe }, { data: lines }, { data: catalog }] = await Promise.all([
+  const [{ data: recipe }, { data: lines }, { data: catalog }, { data: conversions }] = await Promise.all([
     supabase.from("recipes").select("*").eq("id", id).maybeSingle<RecipeSummary>(),
     supabase.from("recipe_ingredient_status").select("*").eq("recipe_id", id).order("position").returns<RecipeIngredientStatus[]>(),
     supabase.from("ingredients").select("id, name, unit, category").order("name").returns<Ingredient[]>(),
+    supabase.from("ingredient_conversions").select("id, ingredient_id, unit, amount, equals_amount, equals_unit").returns<Conversion[]>(),
   ]);
   if (!recipe) notFound();
 
@@ -22,6 +23,7 @@ export default async function EditRecipePage({ params }: PageProps<"/recipes/[id
       </div>
       <RecipeEditor
         catalog={catalog ?? []}
+        conversions={conversions ?? []}
         initial={{
           id,
           title: recipe.title,

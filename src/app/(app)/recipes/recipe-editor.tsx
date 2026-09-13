@@ -2,7 +2,8 @@
 
 import { useActionState, useEffect, useRef, useState, useTransition } from "react";
 import { importRecipe, saveRecipe, type ImportState, type RecipeInput } from "../actions";
-import { CATEGORIES, UNITS, fmtQty, unitFactor, unitLabel, type Ingredient } from "@/lib/types";
+import { CATEGORIES, UNITS, ingredientFactor, unitLabel, type Conversion, type Ingredient } from "@/lib/types";
+import { UnitHint } from "./unit-hint";
 import { fmtMinutes } from "@/lib/dates";
 import { IngredientInput } from "@/components/ingredient-input";
 
@@ -34,9 +35,11 @@ export function RecipeEditor({
   initial,
   catalog,
   aiEnabled = false,
+  conversions: initialConversions = [],
 }: {
   initial?: RecipeInput;
   catalog: Ingredient[];
+  conversions?: Conversion[];
   aiEnabled?: boolean;
 }) {
   const [recipe, setRecipe] = useState<Details>(
@@ -47,6 +50,7 @@ export function RecipeEditor({
   const [importState, importAction, importing] = useActionState<ImportState, FormData>(importRecipe, {});
   const [saveError, setSaveError] = useState<string>();
   const [saving, startSaving] = useTransition();
+  const [conversions, setConversions] = useState(initialConversions);
 
   // When Claude returns a parsed recipe, load it into the form for review.
   const [loadedNonce, setLoadedNonce] = useState<number>();
@@ -76,7 +80,8 @@ export function RecipeEditor({
         // current unit converts to it (keep "tbsp" for oil stored in l).
         const known = patch.name !== undefined ? byName.get(patch.name.trim().toLowerCase()) : undefined;
         if (!known) return next;
-        const keepUnit = l.name.trim() !== "" && unitFactor(next.unit, known.unit) !== null;
+        const own = conversions.filter((c) => c.ingredient_id === known.id);
+        const keepUnit = l.name.trim() !== "" && ingredientFactor(own, next.unit, known.unit).factor !== null;
         return { ...next, category: known.category, unit: keepUnit ? next.unit : known.unit };
       }),
     );
@@ -134,7 +139,6 @@ export function RecipeEditor({
         <h2 className="font-semibold">Ingredients</h2>
         {lines.map((l, index) => {
           const known = byName.get(l.name.trim().toLowerCase());
-          const factor = known ? unitFactor(l.unit, known.unit) : 1;
           return (
             <div key={l.key} className="flex gap-2 border-b border-border pb-3 last:border-0">
               <div className="flex flex-col">
@@ -150,13 +154,14 @@ export function RecipeEditor({
                 </select>
 
                 {known && known.unit !== l.unit && (
-                  <p className={`col-span-3 -mt-1 text-xs ${factor === null ? "text-warn" : "text-muted"}`}>
-                    {factor === null
-                      ? `Pantry counts ${known.name} in ${unitLabel(known.unit)} — ${unitLabel(l.unit)} can't be converted, so it'll just check you have some.`
-                      : l.quantity
-                        ? `= ${fmtQty(l.quantity * factor, known.unit)} from the pantry`
-                        : `Converted to ${unitLabel(known.unit)} for the pantry`}
-                  </p>
+                  <UnitHint
+                    key={`${known.id}-${l.unit}`}
+                    ingredient={known}
+                    unit={l.unit}
+                    quantity={l.quantity}
+                    conversions={conversions}
+                    onChange={setConversions}
+                  />
                 )}
 
                 <input className="input col-span-2 py-1 text-sm" placeholder="note (e.g. diced)" value={l.note ?? ""} onChange={(e) => updateLine(l.key, { note: e.target.value || null })} />

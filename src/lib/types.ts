@@ -13,6 +13,43 @@ export function unitFactor(from: string, to: string): number | null {
   return a && b && a[0] === b[0] ? a[1] / b[1] : null;
 }
 
+export type Conversion = {
+  id: string;
+  ingredient_id: string;
+  unit: string; // as written in recipes
+  amount: number;
+  equals_amount: number;
+  equals_unit: string; // what that uses from the pantry
+};
+
+function metricFactor(from: string, to: string): number | null {
+  if (from === to) return 1;
+  const pairs: Record<string, number> = { "l>ml": 1000, "ml>l": 0.001, "kg>g": 1000, "g>kg": 0.001 };
+  return pairs[`${from}>${to}`] ?? null;
+}
+
+/**
+ * Recipe unit -> pantry unit for one ingredient: same unit, then the ingredient's
+ * own conversions (e.g. 250 ml broth = 5 g powder), then standard conversions.
+ * Mirrors public.ingredient_unit_factor(). Returns the conversion used, if any.
+ */
+export function ingredientFactor(
+  conversions: Conversion[],
+  from: string,
+  to: string,
+): { factor: number | null; via?: Conversion } {
+  if (from === to) return { factor: 1 };
+  const candidates = conversions
+    .filter((c) => metricFactor(from, c.unit) !== null && unitFactor(c.equals_unit, to) !== null)
+    .sort((a, b) => Number(b.unit === from) - Number(a.unit === from));
+  const c = candidates[0];
+  if (c) {
+    const factor = metricFactor(from, c.unit)! * (Number(c.equals_amount) / Number(c.amount)) * unitFactor(c.equals_unit, to)!;
+    return { factor, via: c };
+  }
+  return { factor: unitFactor(from, to) };
+}
+
 /** Spoon/cup measures make poor pantry units; store new ingredients in ml instead. */
 export function stockUnitFor(unit: string) {
   return ["tsp", "tbsp", "cup"].includes(unit) ? "ml" : unit;
