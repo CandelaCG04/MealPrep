@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { fmtQty, type Ingredient, type RecipeIngredientStatus, type RecipeSummary } from "@/lib/types";
-import { cookRecipe, planRecipe } from "../../actions";
+import { fmtQty, unitLabel, type Ingredient, type RecipeIngredientStatus, type RecipeSummary } from "@/lib/types";
+import { planRecipe } from "../../actions";
 import { Submit } from "@/components/submit";
 import { MadeFrom, type SourceWithName } from "./made-from";
+import { CookSection, type Unmeasured } from "./cook-section";
 
 type Shortfall = {
   have: boolean;
@@ -39,6 +40,32 @@ function shortfall(line: RecipeIngredientStatus, factor: number): Shortfall {
     // tiny tolerance: ratios like 1/30 make "need exactly what you have" land a hair above it
     (sourceOnHand === null || (sourceOnHand > 0 && (sourceNeeded === null || sourceOnHand >= sourceNeeded - 1e-9)));
   return { have: viaSource, missing: own.missing, viaSource, sourceNeeded };
+}
+
+/**
+ * Ingredients cooking can't deduct by amount, so it's worth asking whether they ran out:
+ * pantry stock without an amount ("some"), recipe lines without an amount, units that don't convert —
+ * and the same for a "made from" source that's being used instead.
+ */
+function unmeasuredIngredients(lines: (RecipeIngredientStatus & Shortfall)[], sources: Record<string, SourceWithName>): Unmeasured[] {
+  const found = new Map<string, Unmeasured>();
+  for (const l of lines) {
+    const onHand = l.on_hand === null ? null : Number(l.on_hand);
+    if (l.in_pantry && (onHand === null || onHand > 0)) {
+      const reason =
+        onHand === null ? "amount not tracked"
+        : l.quantity === null ? "no amount in the recipe"
+        : l.stock_quantity === null ? `${unitLabel(l.unit)} don't convert to ${unitLabel(l.stock_unit)}`
+        : null;
+      if (reason && !found.has(l.ingredient_id)) found.set(l.ingredient_id, { ingredientId: l.ingredient_id, name: l.name, reason });
+    }
+    const source = sources[l.ingredient_id];
+    if (l.viaSource && source && !found.has(source.source_ingredient_id)) {
+      const reason = l.source_on_hand === null ? "amount not tracked" : l.sourceNeeded === null ? `used for ${l.name}` : null;
+      if (reason) found.set(source.source_ingredient_id, { ingredientId: source.source_ingredient_id, name: source.source_name, reason });
+    }
+  }
+  return [...found.values()];
 }
 
 export function RecipeScaler({
@@ -174,7 +201,7 @@ export function RecipeScaler({
                   )}
 
                   {!l.source_name && !l.have && !l.optional && !editing && (
-                    <button type="button" className="text-xs text-muted underline" onClick={() => setEditingSource(l.ingredient_id)}>
+                    <button type="button" className="block text-xs text-muted underline" onClick={() => setEditingSource(l.ingredient_id)}>
                       Made from something you have?
                     </button>
                   )}
@@ -237,29 +264,14 @@ export function RecipeScaler({
         </section>
       )}
 
-      <section className="card">
-        <h2 className="font-semibold">I cooked this</h2>
-        <p className="mb-3 text-sm text-muted">
-          Deducts the ingredients for {amount} {unitWord} from the pantry and clears one plan.
-        </p>
-        <form action={cookRecipe} className="flex flex-wrap items-end gap-3">
-          <input type="hidden" name="recipe_id" value={recipe.id} />
-          <input type="hidden" name="batches" value={factor} />
-          <div>
-            <label className="label" htmlFor="freeze_portions">Portions to freeze</label>
-            <input
-              key={amount}
-              className="input w-32"
-              id="freeze_portions"
-              name="freeze_portions"
-              type="number"
-              min="0"
-              defaultValue={recipe.freezable && recipe.servings ? amount : 0}
-            />
-          </div>
-          <Submit className="btn-primary" pendingText="Saving…">Cooked {amount} {unitWord}</Submit>
-        </form>
-      </section>
+      <CookSection
+        recipeId={recipe.id}
+        factor={factor}
+        amount={amount}
+        unitWord={unitWord}
+        freezeDefault={recipe.freezable && recipe.servings ? amount : 0}
+        unmeasured={unmeasuredIngredients(lines, sources)}
+      />
     </>
   );
 }

@@ -407,12 +407,15 @@ export async function unplanMeal(fd: FormData) {
   refreshAll();
 }
 
+/** Cook: deducts ingredients, clears a plan, optionally freezes portions, and marks ticked items as ran out. */
 export async function cookRecipe(fd: FormData) {
   const supabase = await db();
+  const ranOut = fd.getAll("ran_out").filter((v): v is string => typeof v === "string" && v.length > 0);
   check(await supabase.rpc("cook_recipe", {
     p_recipe_id: str(fd, "recipe_id"),
     p_batches: num(fd, "batches") ?? 1,
     p_freeze_portions: num(fd, "freeze_portions") ?? 0,
+    p_ran_out: ranOut,
   }));
   refreshAll();
 }
