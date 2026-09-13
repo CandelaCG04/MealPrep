@@ -205,27 +205,31 @@ function NumberField({ id, label, value, onChange, min = 0 }: { id: string; labe
 
 function StepsEditor({ steps, setSteps }: { steps: Step[]; setSteps: (s: Step[]) => void }) {
   const refs = useRef(new Map<string, HTMLTextAreaElement>());
-  const [focusKey, setFocusKey] = useState<string>();
+  // One-shot: which step to focus after the next render (set when adding/removing steps).
+  // Cleared once used, so typing in any step never moves the cursor.
+  const pendingFocus = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!focusKey) return;
-    const el = refs.current.get(focusKey);
+    const key = pendingFocus.current;
+    if (!key) return;
+    pendingFocus.current = null;
+    const el = refs.current.get(key);
     el?.focus();
     el?.setSelectionRange(el.value.length, el.value.length);
-  }, [focusKey, steps]);
+  });
 
   const update = (key: string, text: string) => setSteps(steps.map((s) => (s.key === key ? { ...s, text } : s)));
 
   function insertAfter(index: number, texts: string[]) {
     const added = texts.map((text) => ({ key: newKey(), text }));
     setSteps([...steps.slice(0, index + 1), ...added, ...steps.slice(index + 1)]);
-    setFocusKey(added[added.length - 1].key);
+    pendingFocus.current = added[added.length - 1].key;
   }
 
   function remove(index: number) {
     if (steps.length === 1) return setSteps([{ ...steps[0], text: "" }]);
     setSteps(steps.filter((_, i) => i !== index));
-    setFocusKey(steps[Math.max(0, index - 1)].key);
+    pendingFocus.current = steps[Math.max(0, index - 1)].key;
   }
 
   return (
@@ -270,7 +274,7 @@ function StepsEditor({ steps, setSteps }: { steps: Step[]; setSteps: (s: Step[])
                 const merged = steps.map((x) => (x.key === s.key ? { ...x, text: (x.text ? x.text + " " : "") + first } : x));
                 const added = rest.map((text) => ({ key: newKey(), text }));
                 setSteps([...merged.slice(0, index + 1), ...added, ...merged.slice(index + 1)]);
-                setFocusKey(added[added.length - 1].key);
+                pendingFocus.current = added[added.length - 1].key;
               }}
             />
             <div className="flex shrink-0 flex-col">
