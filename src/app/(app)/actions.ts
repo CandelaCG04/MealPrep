@@ -86,6 +86,13 @@ export async function setIngredientCategory(fd: FormData) {
   refreshAll();
 }
 
+/** Save the order of one pantry category after drag and drop (items dropped in join that category). */
+export async function reorderPantry(category: string, itemIds: string[]) {
+  const supabase = await db();
+  check(await supabase.rpc("reorder_pantry", { p_category: category, p_item_ids: itemIds }));
+  refreshAll();
+}
+
 /** Ran out: keep the item (quantity 0) so it's easy to restock or re-buy. */
 export async function markRanOut(fd: FormData) {
   const supabase = await db();

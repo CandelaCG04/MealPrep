@@ -89,6 +89,7 @@ export type PantryItem = {
   location: Location;
   auto_restock: boolean;
   usual_quantity: number | null;
+  position: number;
   expires_on: string | null;
   updated_at: string;
   ingredients: Ingredient;
