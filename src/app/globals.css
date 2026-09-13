@@ -1,26 +1,70 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --background: #f7f5f0;
+  --surface: #ffffff;
+  --foreground: #1d1b16;
+  --muted: #6f6a5f;
+  --border: #e4dfd4;
+  --accent: #2f7d4f;
+  --accent-soft: #e3f1e8;
+  --warn: #b4540a;
+  --warn-soft: #fbeedd;
+  --danger: #b42318;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #14130f;
+    --surface: #1e1c17;
+    --foreground: #eeeae0;
+    --muted: #a39d90;
+    --border: #34312a;
+    --accent: #5cc486;
+    --accent-soft: #1f3327;
+    --warn: #f0a458;
+    --warn-soft: #3a2a18;
+    --danger: #f97066;
   }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-danger: var(--danger);
+  --font-sans: var(--font-geist-sans);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+}
+
+@utility card {
+  @apply rounded-2xl border border-border bg-surface p-4;
+}
+@utility input {
+  @apply w-full rounded-xl border border-border bg-surface px-3 py-2 text-base outline-none focus:border-accent;
+}
+@utility btn {
+  @apply inline-flex items-center justify-center gap-1 rounded-xl px-4 py-2 text-sm font-medium transition active:scale-[0.98] disabled:opacity-50;
+}
+@utility btn-primary {
+  @apply btn bg-accent text-white dark:text-black;
+}
+@utility btn-ghost {
+  @apply btn border border-border bg-surface;
+}
+@utility label {
+  @apply mb-1 block text-xs font-medium tracking-wide text-muted uppercase;
+}
+@utility h1 {
+  @apply text-2xl font-semibold tracking-tight;
 }
