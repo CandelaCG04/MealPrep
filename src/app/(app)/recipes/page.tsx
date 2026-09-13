@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import type { RecipeSummary } from "@/lib/types";
+import { fmtMinutes, totalMinutes } from "@/lib/dates";
 
 const FILTERS = [
   { key: "all", label: "All" },
@@ -56,7 +57,7 @@ export default async function RecipesPage({ searchParams }: PageProps<"/recipes"
                 <div className="flex-1">
                   <div className="font-medium">{r.title}</div>
                   <div className="text-sm text-muted">
-                    {[r.servings && `${r.servings} servings`, r.prep_minutes && `${r.prep_minutes} min`, r.freezable && "🧊 freezable", r.planned && "📌 planned"]
+                    {[r.servings && `${r.servings} portions`, totalMinutes(r) > 0 && `⏱ ${fmtMinutes(totalMinutes(r))}`, r.freezable && "🧊 freezable", r.planned && "📌 planned"]
                       .filter(Boolean)
                       .join(" · ")}
                   </div>

@@ -5,6 +5,17 @@ import type { RecipeIngredientStatus, RecipeSummary } from "@/lib/types";
 import { deleteRecipe } from "../../actions";
 import { Submit } from "@/components/submit";
 import { RecipeScaler } from "./recipe-scaler";
+import { fmtMinutes, totalMinutes } from "@/lib/dates";
+
+function TimeChip({ label, minutes, strong }: { label: string; minutes: number | null; strong?: boolean }) {
+  if (!minutes) return null;
+  return (
+    <div className={`rounded-xl border px-3 py-1.5 ${strong ? "border-accent bg-accent-soft text-accent" : "border-border bg-surface"}`}>
+      <div className="text-[10px] font-medium tracking-wide uppercase opacity-70">{label}</div>
+      <div className="text-sm font-semibold">{fmtMinutes(minutes)}</div>
+    </div>
+  );
+}
 
 export default async function RecipePage({ params }: PageProps<"/recipes/[id]">) {
   const { id } = await params;
@@ -21,15 +32,18 @@ export default async function RecipePage({ params }: PageProps<"/recipes/[id]">)
       <div>
         <Link href="/recipes" className="text-sm text-muted">‹ Recipes</Link>
         <h1 className="h1 mt-1">{recipe.title}</h1>
-        <p className="text-muted">
-          {[recipe.prep_minutes && `${recipe.prep_minutes} min`, recipe.freezable && "🧊 freezes well"]
-            .filter(Boolean)
-            .join(" · ")}
+        {totalMinutes(recipe) > 0 && (
+          <div className="mt-3 flex gap-2">
+            <TimeChip label="Prep" minutes={recipe.prep_minutes} />
+            <TimeChip label="Cook" minutes={recipe.cook_minutes} />
+            <TimeChip label="Total" minutes={totalMinutes(recipe)} strong />
+          </div>
+        )}
+        <p className="mt-2 text-muted">
+          {recipe.freezable && "🧊 freezes well"}
+          {recipe.freezable && recipe.source_url && " · "}
           {recipe.source_url && (
-            <>
-              {recipe.prep_minutes || recipe.freezable ? " · " : ""}
-              <a href={recipe.source_url} target="_blank" rel="noreferrer" className="underline">source</a>
-            </>
+            <a href={recipe.source_url} target="_blank" rel="noreferrer" className="underline">source</a>
           )}
         </p>
       </div>

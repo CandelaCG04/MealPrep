@@ -30,9 +30,10 @@ const IngredientLine = z.object({
 export const ParsedRecipe = z.object({
   title: z.string(),
   servings: z.number().int().nullable(),
-  prep_minutes: z.number().int().nullable(),
+  prep_minutes: z.number().int().nullable().describe("Hands-on preparation time"),
+  cook_minutes: z.number().int().nullable().describe("Cooking/baking/resting time after prep"),
   freezable: z.boolean().describe("Whether this dish freezes well as a prepped meal"),
-  instructions: z.string().describe("Numbered steps, one per line"),
+  steps: z.array(z.string()).describe("Method steps in order, one instruction per item, without numbering"),
   ingredients: z.array(IngredientLine),
 });
 export type ParsedRecipe = z.infer<typeof ParsedRecipe>;
@@ -50,10 +51,13 @@ const ParsedPantry = z.object({
 });
 export type ParsedPantry = z.infer<typeof ParsedPantry>;
 
-function catalogPrompt(catalog: Ingredient[]) {
+function catalogPrompt(catalog: Ingredient[], convertUnits: boolean) {
   if (catalog.length === 0) return "The user has no ingredients saved yet.";
   const lines = catalog.map((i) => `- ${i.name} (${i.unit})`).join("\n");
-  return `The user's existing ingredient catalog is below. When an ingredient matches one of these, use exactly that name and convert the quantity into that unit (e.g. "2 cups rice" -> grams if rice is stored in g). Only invent a new name when nothing matches.\n\n${lines}`;
+  const unitRule = convertUnits
+    ? ` and convert the quantity into that unit (e.g. "2 cups rice" -> grams if rice is stored in g)`
+    : `; keep the recipe's own unit (e.g. "1 tbsp" stays tbsp even if the catalog stores it in l — the app converts)`;
+  return `The user's existing ingredient catalog is below. When an ingredient matches one of these, use exactly that name${unitRule}. Only invent a new name when nothing matches.\n\n${lines}`;
 }
 
 async function extract<T extends z.ZodType>(
@@ -111,7 +115,7 @@ export type RecipeSource =
   | { kind: "image"; mediaType: "image/jpeg" | "image/png" | "image/webp" | "image/gif"; base64: string };
 
 export async function parseRecipe(source: RecipeSource, catalog: Ingredient[]): Promise<ParsedRecipe> {
-  const system = `You extract recipes into structured data for a meal-prep app. Use metric units where the source allows (g, ml), "pc" for countable items. Merge duplicate ingredients. Leave out water unless it's a significant bought ingredient.\n\n${catalogPrompt(catalog)}`;
+  const system = `You extract recipes into structured data for a meal-prep app. Use the recipe's units (tbsp, tsp, clove, pinch… are fine), metric where the source gives a weight or volume, "pc" for countable items. Merge duplicate ingredients. Leave out water unless it's a significant bought ingredient.\n\n${catalogPrompt(catalog, false)}`;
 
   let content: Anthropic.Beta.BetaContentBlockParam[];
   if (source.kind === "image") {
@@ -129,6 +133,6 @@ export async function parseRecipe(source: RecipeSource, catalog: Ingredient[]): 
 }
 
 export async function parsePantryText(text: string, catalog: Ingredient[]): Promise<ParsedPantry> {
-  const system = `You turn a quick note or grocery receipt into pantry items for a meal-prep app. Guess a sensible storage location (fridge for dairy/fresh meat, freezer for frozen goods, pantry otherwise). If no amount is given, use quantity null.\n\n${catalogPrompt(catalog)}`;
+  const system = `You turn a quick note or grocery receipt into pantry items for a meal-prep app. Guess a sensible storage location (fridge for dairy/fresh meat, freezer for frozen goods, pantry otherwise). If no amount is given, use quantity null.\n\n${catalogPrompt(catalog, true)}`;
   return extract(ParsedPantry, system, [{ type: "text", text }]);
 }

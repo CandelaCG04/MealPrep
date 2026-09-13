@@ -1,21 +1,34 @@
 "use client";
 
-import { useActionState, useState, useTransition } from "react";
+import { useActionState, useEffect, useRef, useState, useTransition } from "react";
 import { importRecipe, saveRecipe, type ImportState, type RecipeInput } from "../actions";
-import { CATEGORIES, UNITS, unitLabel, type Ingredient } from "@/lib/types";
+import { CATEGORIES, UNITS, fmtQty, unitFactor, unitLabel, type Ingredient } from "@/lib/types";
+import { fmtMinutes } from "@/lib/dates";
 import { IngredientInput } from "@/components/ingredient-input";
 
 type Line = RecipeInput["ingredients"][number] & { key: string };
+type Step = { key: string; text: string };
+type Details = Omit<RecipeInput, "ingredients" | "steps">;
 
-const blankLine = (): Line => ({
-  key: crypto.randomUUID(),
-  name: "",
-  quantity: null,
-  unit: "g",
-  category: "other",
-  note: null,
-  optional: false,
-});
+const newKey = () => crypto.randomUUID();
+const blankLine = (): Line => ({ key: newKey(), name: "", quantity: null, unit: "g", category: "other", note: null, optional: false });
+const toSteps = (texts: string[]): Step[] => (texts.length ? texts : [""]).map((text) => ({ key: newKey(), text }));
+
+/** "1. Chop onions\n2) Fry" -> ["Chop onions", "Fry"] */
+function splitSteps(text: string) {
+  return text
+    .split(/\r?\n/)
+    .map((l) => l.trim().replace(/^(\d+\s*[.):-]|[-*•])\s*/, ""))
+    .filter(Boolean);
+}
+
+function move<T>(list: T[], index: number, delta: number) {
+  const to = index + delta;
+  if (to < 0 || to >= list.length) return list;
+  const next = [...list];
+  [next[index], next[to]] = [next[to], next[index]];
+  return next;
+}
 
 export function RecipeEditor({
   initial,
@@ -26,12 +39,11 @@ export function RecipeEditor({
   catalog: Ingredient[];
   aiEnabled?: boolean;
 }) {
-  const [recipe, setRecipe] = useState<Omit<RecipeInput, "ingredients">>(
-    initial ?? { title: "", servings: 4, prep_minutes: null, freezable: false, instructions: "", source_url: null, notes: null },
+  const [recipe, setRecipe] = useState<Details>(
+    initial ?? { title: "", servings: 4, prep_minutes: null, cook_minutes: null, freezable: false, source_url: null, notes: null },
   );
-  const [lines, setLines] = useState<Line[]>(
-    initial?.ingredients.map((i) => ({ ...i, key: crypto.randomUUID() })) ?? [blankLine()],
-  );
+  const [lines, setLines] = useState<Line[]>(initial?.ingredients.map((i) => ({ ...i, key: newKey() })) ?? [blankLine()]);
+  const [steps, setSteps] = useState<Step[]>(toSteps(initial?.steps ?? []));
   const [importState, importAction, importing] = useActionState<ImportState, FormData>(importRecipe, {});
   const [saveError, setSaveError] = useState<string>();
   const [saving, startSaving] = useTransition();
@@ -46,10 +58,11 @@ export function RecipeEditor({
       title: parsed.title,
       servings: parsed.servings,
       prep_minutes: parsed.prep_minutes,
+      cook_minutes: parsed.cook_minutes,
       freezable: parsed.freezable,
-      instructions: parsed.instructions,
     }));
-    setLines(parsed.ingredients.map((i) => ({ ...i, key: crypto.randomUUID() })));
+    setLines(parsed.ingredients.map((i) => ({ ...i, key: newKey() })));
+    setSteps(toSteps(parsed.steps));
   }
 
   const byName = new Map(catalog.map((i) => [i.name.toLowerCase(), i]));
@@ -59,9 +72,12 @@ export function RecipeEditor({
       ls.map((l) => {
         if (l.key !== key) return l;
         const next = { ...l, ...patch };
-        // Picking an existing ingredient locks in its unit and category.
+        // Picking an existing ingredient: adopt its category, and its unit unless the
+        // current unit converts to it (keep "tbsp" for oil stored in l).
         const known = patch.name !== undefined ? byName.get(patch.name.trim().toLowerCase()) : undefined;
-        return known ? { ...next, unit: known.unit, category: known.category } : next;
+        if (!known) return next;
+        const keepUnit = l.name.trim() !== "" && unitFactor(next.unit, known.unit) !== null;
+        return { ...next, category: known.category, unit: keepUnit ? next.unit : known.unit };
       }),
     );
   }
@@ -69,10 +85,12 @@ export function RecipeEditor({
   function save() {
     setSaveError(undefined);
     startSaving(async () => {
-      const result = await saveRecipe({ ...recipe, id: initial?.id, ingredients: lines });
+      const result = await saveRecipe({ ...recipe, id: initial?.id, ingredients: lines, steps: steps.map((s) => s.text) });
       if (result?.error) setSaveError(result.error);
     });
   }
+
+  const total = (recipe.prep_minutes ?? 0) + (recipe.cook_minutes ?? 0);
 
   return (
     <div className="flex flex-col gap-6">
@@ -93,66 +111,79 @@ export function RecipeEditor({
         </form>
       )}
 
+      {/* Details */}
       <div className="card flex flex-col gap-3">
         <div>
           <label className="label" htmlFor="title">Title</label>
           <input className="input" id="title" value={recipe.title} onChange={(e) => setRecipe({ ...recipe, title: e.target.value })} />
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="label" htmlFor="servings">Servings</label>
-            <input className="input" id="servings" type="number" min="1" value={recipe.servings ?? ""} onChange={(e) => setRecipe({ ...recipe, servings: e.target.value ? Number(e.target.value) : null })} />
-          </div>
-          <div>
-            <label className="label" htmlFor="prep">Minutes</label>
-            <input className="input" id="prep" type="number" min="0" value={recipe.prep_minutes ?? ""} onChange={(e) => setRecipe({ ...recipe, prep_minutes: e.target.value ? Number(e.target.value) : null })} />
-          </div>
+        <div className="grid grid-cols-3 gap-3">
+          <NumberField id="servings" label="Portions" min={1} value={recipe.servings} onChange={(servings) => setRecipe({ ...recipe, servings })} />
+          <NumberField id="prep" label="Prep (min)" value={recipe.prep_minutes} onChange={(prep_minutes) => setRecipe({ ...recipe, prep_minutes })} />
+          <NumberField id="cook" label="Cook (min)" value={recipe.cook_minutes} onChange={(cook_minutes) => setRecipe({ ...recipe, cook_minutes })} />
         </div>
+        {total > 0 && <p className="-mt-1 text-sm text-muted">⏱ Total {fmtMinutes(total)}</p>}
         <label className="flex items-center gap-2">
           <input type="checkbox" checked={recipe.freezable} onChange={(e) => setRecipe({ ...recipe, freezable: e.target.checked })} />
           Freezes well
         </label>
       </div>
 
+      {/* Ingredients */}
       <div className="card flex flex-col gap-3">
         <h2 className="font-semibold">Ingredients</h2>
-        {lines.map((l) => {
+        {lines.map((l, index) => {
           const known = byName.get(l.name.trim().toLowerCase());
+          const factor = known ? unitFactor(l.unit, known.unit) : 1;
           return (
-            <div key={l.key} className="grid grid-cols-[1fr_5rem_5.5rem_auto] items-start gap-2 border-b border-border pb-3 last:border-0">
-              <IngredientInput catalog={catalog} value={l.name} onChange={(name) => updateLine(l.key, { name })} />
-              <input className="input" type="number" step="any" min="0" placeholder="qty" value={l.quantity ?? ""} onChange={(e) => updateLine(l.key, { quantity: e.target.value ? Number(e.target.value) : null })} />
-              <select className="input px-1" value={l.unit} disabled={!!known} onChange={(e) => updateLine(l.key, { unit: e.target.value })} aria-label="Unit">
-                {[...new Set([l.unit, ...UNITS])].map((u) => <option key={u} value={u}>{unitLabel(u)}</option>)}
-              </select>
-              <button type="button" className="btn px-2 text-muted" aria-label="Remove ingredient" onClick={() => setLines(lines.filter((x) => x.key !== l.key))}>✕</button>
-              <input className="input col-span-2 py-1 text-sm" placeholder="note (e.g. diced)" value={l.note ?? ""} onChange={(e) => updateLine(l.key, { note: e.target.value || null })} />
-              <div className="col-span-2 flex items-center gap-2 text-sm">
-                {!known && l.name.trim() && (
-                  <select className="input py-1 text-sm" value={l.category} onChange={(e) => updateLine(l.key, { category: e.target.value })} aria-label="Category">
-                    {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
-                  </select>
+            <div key={l.key} className="flex gap-2 border-b border-border pb-3 last:border-0">
+              <div className="flex flex-col">
+                <button type="button" className="btn h-7 w-7 p-0 text-muted" onClick={() => setLines(move(lines, index, -1))} disabled={index === 0} aria-label="Move up">↑</button>
+                <button type="button" className="btn h-7 w-7 p-0 text-muted" onClick={() => setLines(move(lines, index, 1))} disabled={index === lines.length - 1} aria-label="Move down">↓</button>
+              </div>
+
+              <div className="grid flex-1 grid-cols-[1fr_4.5rem_5.5rem] items-start gap-2">
+                <IngredientInput catalog={catalog} value={l.name} onChange={(name) => updateLine(l.key, { name })} />
+                <input className="input px-2" type="number" step="any" min="0" placeholder="qty" aria-label="Amount" value={l.quantity ?? ""} onChange={(e) => updateLine(l.key, { quantity: e.target.value ? Number(e.target.value) : null })} />
+                <select className="input px-1" value={l.unit} onChange={(e) => updateLine(l.key, { unit: e.target.value })} aria-label="Unit">
+                  {[...new Set([l.unit, ...UNITS])].map((u) => <option key={u} value={u}>{unitLabel(u)}</option>)}
+                </select>
+
+                {known && known.unit !== l.unit && (
+                  <p className={`col-span-3 -mt-1 text-xs ${factor === null ? "text-warn" : "text-muted"}`}>
+                    {factor === null
+                      ? `Pantry counts ${known.name} in ${unitLabel(known.unit)} — ${unitLabel(l.unit)} can't be converted, so it'll just check you have some.`
+                      : l.quantity
+                        ? `= ${fmtQty(l.quantity * factor, known.unit)} from the pantry`
+                        : `Converted to ${unitLabel(known.unit)} for the pantry`}
+                  </p>
                 )}
-                <label className="flex shrink-0 items-center gap-1 text-muted">
+
+                <input className="input col-span-2 py-1 text-sm" placeholder="note (e.g. diced)" value={l.note ?? ""} onChange={(e) => updateLine(l.key, { note: e.target.value || null })} />
+                <label className="flex items-center gap-1 text-sm text-muted">
                   <input type="checkbox" checked={l.optional} onChange={(e) => updateLine(l.key, { optional: e.target.checked })} />
                   optional
                 </label>
+                {!known && l.name.trim() && (
+                  <select className="input col-span-3 py-1 text-sm" value={l.category} onChange={(e) => updateLine(l.key, { category: e.target.value })} aria-label="Category">
+                    {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+                  </select>
+                )}
               </div>
+
+              <button type="button" className="btn h-7 w-7 p-0 text-muted" aria-label="Remove ingredient" onClick={() => setLines(lines.filter((x) => x.key !== l.key))}>✕</button>
             </div>
           );
         })}
         <button type="button" className="btn-ghost" onClick={() => setLines([...lines, blankLine()])}>+ Ingredient</button>
       </div>
 
-      <div className="card flex flex-col gap-3">
-        <div>
-          <label className="label" htmlFor="instructions">Method</label>
-          <textarea className="input" id="instructions" rows={8} value={recipe.instructions} onChange={(e) => setRecipe({ ...recipe, instructions: e.target.value })} />
-        </div>
-        <div>
-          <label className="label" htmlFor="notes">Notes</label>
-          <textarea className="input" id="notes" rows={2} value={recipe.notes ?? ""} onChange={(e) => setRecipe({ ...recipe, notes: e.target.value || null })} />
-        </div>
+      {/* Steps */}
+      <StepsEditor steps={steps} setSteps={setSteps} />
+
+      <div className="card">
+        <label className="label" htmlFor="notes">Notes</label>
+        <textarea className="input" id="notes" rows={2} value={recipe.notes ?? ""} onChange={(e) => setRecipe({ ...recipe, notes: e.target.value || null })} />
       </div>
 
       <div className="sticky bottom-20 flex items-center gap-3 md:bottom-4">
@@ -161,6 +192,105 @@ export function RecipeEditor({
       </div>
     </div>
   );
+}
+
+function NumberField({ id, label, value, onChange, min = 0 }: { id: string; label: string; value: number | null; onChange: (v: number | null) => void; min?: number }) {
+  return (
+    <div>
+      <label className="label" htmlFor={id}>{label}</label>
+      <input className="input" id={id} type="number" inputMode="numeric" min={min} value={value ?? ""} onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)} />
+    </div>
+  );
+}
+
+function StepsEditor({ steps, setSteps }: { steps: Step[]; setSteps: (s: Step[]) => void }) {
+  const refs = useRef(new Map<string, HTMLTextAreaElement>());
+  const [focusKey, setFocusKey] = useState<string>();
+
+  useEffect(() => {
+    if (!focusKey) return;
+    const el = refs.current.get(focusKey);
+    el?.focus();
+    el?.setSelectionRange(el.value.length, el.value.length);
+  }, [focusKey, steps]);
+
+  const update = (key: string, text: string) => setSteps(steps.map((s) => (s.key === key ? { ...s, text } : s)));
+
+  function insertAfter(index: number, texts: string[]) {
+    const added = texts.map((text) => ({ key: newKey(), text }));
+    setSteps([...steps.slice(0, index + 1), ...added, ...steps.slice(index + 1)]);
+    setFocusKey(added[added.length - 1].key);
+  }
+
+  function remove(index: number) {
+    if (steps.length === 1) return setSteps([{ ...steps[0], text: "" }]);
+    setSteps(steps.filter((_, i) => i !== index));
+    setFocusKey(steps[Math.max(0, index - 1)].key);
+  }
+
+  return (
+    <div className="card flex flex-col gap-3">
+      <div>
+        <h2 className="font-semibold">Steps</h2>
+        <p className="text-xs text-muted">Enter starts a new step · Shift+Enter for a line break · pasting a whole method splits it into steps</p>
+      </div>
+      <ol className="flex flex-col gap-2">
+        {steps.map((s, index) => (
+          <li key={s.key} className="flex items-start gap-2">
+            <span className="mt-1.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent-soft text-sm font-semibold text-accent">
+              {index + 1}
+            </span>
+            <textarea
+              ref={(el) => {
+                if (!el) return void refs.current.delete(s.key);
+                refs.current.set(s.key, el);
+                autoGrow(el);
+              }}
+              onInput={(e) => autoGrow(e.currentTarget)}
+              className="input min-h-10 resize-none [field-sizing:content]"
+              rows={1}
+              placeholder={index === 0 ? "e.g. Preheat the oven to 200°C" : "Next step"}
+              value={s.text}
+              onChange={(e) => update(s.key, e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  insertAfter(index, [""]);
+                }
+                if (e.key === "Backspace" && s.text === "" && steps.length > 1) {
+                  e.preventDefault();
+                  remove(index);
+                }
+              }}
+              onPaste={(e) => {
+                const parts = splitSteps(e.clipboardData.getData("text"));
+                if (parts.length < 2) return;
+                e.preventDefault();
+                const [first, ...rest] = parts;
+                const merged = steps.map((x) => (x.key === s.key ? { ...x, text: (x.text ? x.text + " " : "") + first } : x));
+                const added = rest.map((text) => ({ key: newKey(), text }));
+                setSteps([...merged.slice(0, index + 1), ...added, ...merged.slice(index + 1)]);
+                setFocusKey(added[added.length - 1].key);
+              }}
+            />
+            <div className="flex shrink-0 flex-col">
+              <button type="button" className="btn h-6 w-7 p-0 text-xs text-muted" onClick={() => setSteps(move(steps, index, -1))} disabled={index === 0} aria-label={`Move step ${index + 1} up`}>↑</button>
+              <button type="button" className="btn h-6 w-7 p-0 text-xs text-muted" onClick={() => setSteps(move(steps, index, 1))} disabled={index === steps.length - 1} aria-label={`Move step ${index + 1} down`}>↓</button>
+            </div>
+            <button type="button" className="btn mt-1 h-7 w-7 p-0 text-muted" onClick={() => remove(index)} aria-label={`Remove step ${index + 1}`}>✕</button>
+          </li>
+        ))}
+      </ol>
+      <button type="button" className="btn-ghost" onClick={() => insertAfter(steps.length - 1, [""])}>+ Step</button>
+    </div>
+  );
+}
+
+/** Grow a textarea to fit its text (fallback for browsers without CSS field-sizing). */
+function autoGrow(el: HTMLTextAreaElement) {
+  if (CSS.supports("field-sizing", "content")) return;
+  el.style.height = "auto";
+  el.style.height = `${el.scrollHeight + 2}px`;
 }
 
 /** Downscale phone photos before upload so they fit the server action body limit. */

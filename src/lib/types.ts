@@ -1,4 +1,22 @@
-export const UNITS = ["g", "kg", "ml", "l", "pc", "tbsp", "tsp", "cup", "can", "pack"] as const;
+export const UNITS = ["g", "kg", "ml", "l", "pc", "tbsp", "tsp", "cup", "can", "pack", "clove", "slice", "pinch", "bunch"] as const;
+
+/** Keep in sync with public.unit_factor() in the database. */
+const UNIT_SIZES: Record<string, [dimension: "mass" | "volume", size: number]> = {
+  g: ["mass", 1], kg: ["mass", 1000],
+  ml: ["volume", 1], l: ["volume", 1000], tsp: ["volume", 5], tbsp: ["volume", 15], cup: ["volume", 240],
+};
+
+/** Multiplier from one unit to another, or null if they measure different things. */
+export function unitFactor(from: string, to: string): number | null {
+  if (from === to) return 1;
+  const a = UNIT_SIZES[from], b = UNIT_SIZES[to];
+  return a && b && a[0] === b[0] ? a[1] / b[1] : null;
+}
+
+/** Spoon/cup measures make poor pantry units; store new ingredients in ml instead. */
+export function stockUnitFor(unit: string) {
+  return ["tsp", "tbsp", "cup"].includes(unit) ? "ml" : unit;
+}
 export const CATEGORIES = ["produce", "dairy", "meat", "fish", "bakery", "pantry", "spices", "frozen", "drinks", "other"] as const;
 export const LOCATIONS = ["pantry", "fridge", "freezer"] as const;
 
@@ -28,7 +46,8 @@ export type RecipeSummary = {
   title: string;
   servings: number | null;
   prep_minutes: number | null;
-  instructions: string;
+  cook_minutes: number | null;
+  steps: string[];
   source_url: string | null;
   notes: string | null;
   freezable: boolean;
@@ -43,9 +62,11 @@ export type RecipeIngredientStatus = {
   recipe_id: string;
   ingredient_id: string;
   name: string;
-  unit: string;
+  unit: string; // unit used in the recipe
+  stock_unit: string; // unit the pantry tracks
   category: string;
-  quantity: number | null;
+  quantity: number | null; // in `unit`
+  stock_quantity: number | null; // in `stock_unit`; null if units can't be converted
   note: string | null;
   optional: boolean;
   position: number;
@@ -96,6 +117,10 @@ const UNIT_LABELS: Record<string, [singular: string, plural: string]> = {
   can: ["can", "cans"],
   pack: ["pack", "packs"],
   cup: ["cup", "cups"],
+  clove: ["clove", "cloves"],
+  slice: ["slice", "slices"],
+  pinch: ["pinch", "pinches"],
+  bunch: ["bunch", "bunches"],
 };
 
 /** Human label for a stored unit, e.g. "pc" -> "units". */

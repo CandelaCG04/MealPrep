@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { parsePantryText, parseRecipe, type ParsedRecipe, type RecipeSource } from "@/lib/ai";
-import type { Ingredient } from "@/lib/types";
+import { stockUnitFor, unitFactor, type Ingredient } from "@/lib/types";
 
 function str(fd: FormData, key: string) {
   const v = fd.get(key);
@@ -204,8 +204,9 @@ export type RecipeInput = {
   title: string;
   servings: number | null;
   prep_minutes: number | null;
+  cook_minutes: number | null;
   freezable: boolean;
-  instructions: string;
+  steps: string[];
   source_url: string | null;
   notes: string | null;
   ingredients: {
@@ -226,8 +227,9 @@ export async function saveRecipe(input: RecipeInput): Promise<{ error: string } 
     title: input.title.trim(),
     servings: input.servings,
     prep_minutes: input.prep_minutes,
+    cook_minutes: input.cook_minutes,
     freezable: input.freezable,
-    instructions: input.instructions,
+    steps: input.steps.map((s) => s.trim()).filter(Boolean),
     source_url: input.source_url,
     notes: input.notes,
   };
@@ -243,19 +245,32 @@ export async function saveRecipe(input: RecipeInput): Promise<{ error: string } 
     recipeId = data.id;
   }
 
-  // Merge lines that resolve to the same ingredient.
-  const rows = new Map<string, { quantity: number | null; note: string | null; optional: boolean; position: number }>();
+  // Merge lines that resolve to the same ingredient (converting units where possible).
+  type Row = { quantity: number | null; unit: string; note: string | null; optional: boolean; position: number };
+  const rows = new Map<string, Row>();
   let position = 0;
   for (const line of input.ingredients) {
     if (!line.name.trim()) continue;
-    const ingredientId = await ensureIngredient(line.name, line.unit, line.category);
+    // A new ingredient's pantry unit comes from the recipe line (spoons/cups become ml).
+    const ingredientId = await ensureIngredient(line.name, stockUnitFor(line.unit), line.category);
     const existing = rows.get(ingredientId);
     if (existing) {
-      existing.quantity =
-        existing.quantity === null || line.quantity === null ? existing.quantity ?? line.quantity : existing.quantity + line.quantity;
+      const factor = unitFactor(line.unit, existing.unit);
+      if (existing.quantity !== null && line.quantity && factor !== null) {
+        existing.quantity += line.quantity * factor;
+      } else if (existing.quantity === null && factor !== null && line.quantity) {
+        existing.quantity = line.quantity * factor;
+      }
+      existing.note = [existing.note, line.note].filter(Boolean).join("; ") || null;
       existing.optional &&= line.optional;
     } else {
-      rows.set(ingredientId, { quantity: line.quantity || null, note: line.note, optional: line.optional, position: position++ });
+      rows.set(ingredientId, {
+        quantity: line.quantity || null,
+        unit: line.unit,
+        note: line.note,
+        optional: line.optional,
+        position: position++,
+      });
     }
   }
 

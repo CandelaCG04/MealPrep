@@ -27,8 +27,9 @@ export default async function EditRecipePage({ params }: PageProps<"/recipes/[id
           title: recipe.title,
           servings: recipe.servings,
           prep_minutes: recipe.prep_minutes,
+          cook_minutes: recipe.cook_minutes,
           freezable: recipe.freezable,
-          instructions: recipe.instructions,
+          steps: recipe.steps,
           source_url: recipe.source_url,
           notes: recipe.notes,
           ingredients: (lines ?? []).map((l) => ({

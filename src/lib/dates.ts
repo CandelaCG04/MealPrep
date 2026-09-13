@@ -1,3 +1,15 @@
+/** 75 -> "1 h 15 min" */
+export function fmtMinutes(minutes: number | null | undefined) {
+  if (!minutes) return "";
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return [h && `${h} h`, m && `${m} min`].filter(Boolean).join(" ");
+}
+
+export function totalMinutes(recipe: { prep_minutes: number | null; cook_minutes: number | null }) {
+  return (recipe.prep_minutes ?? 0) + (recipe.cook_minutes ?? 0);
+}
+
 export function daysSince(isoDate: string) {
   const then = new Date(isoDate + (isoDate.length === 10 ? "T00:00:00" : ""));
   return Math.floor((Date.now() - then.getTime()) / 86_400_000);

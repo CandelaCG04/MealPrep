@@ -6,13 +6,17 @@ import { fmtQty, type RecipeIngredientStatus, type RecipeSummary } from "@/lib/t
 import { cookRecipe, planRecipe } from "../../actions";
 import { Submit } from "@/components/submit";
 
-/** Mirrors the recipe_ingredient_status view's `have`, but for a scaled amount. */
+/**
+ * Mirrors the recipe_ingredient_status view's `have`, but for a scaled amount.
+ * Compares in the pantry's unit; `missing` is in stock_unit.
+ */
 function shortfall(line: RecipeIngredientStatus, factor: number): { have: boolean; missing: number | null } {
-  if (!line.in_pantry) return { have: false, missing: line.quantity === null ? null : Number(line.quantity) * factor };
+  if (!line.in_pantry) return { have: false, missing: null };
   if (line.on_hand === null) return { have: true, missing: null }; // untracked stock counts as enough
   const onHand = Number(line.on_hand);
-  if (line.quantity === null) return { have: onHand > 0, missing: null };
-  const need = Number(line.quantity) * factor;
+  if (onHand <= 0) return { have: false, missing: null };
+  if (line.stock_quantity === null) return { have: true, missing: null }; // "to taste" or units can't be compared
+  const need = Number(line.stock_quantity) * factor;
   return onHand >= need ? { have: true, missing: null } : { have: false, missing: need - onHand };
 }
 
@@ -28,6 +32,13 @@ export function RecipeScaler({
   const base = recipe.servings ?? 1;
   const unitWord = recipe.servings ? "portions" : "batches";
   const [amount, setAmount] = useState(base);
+  const [done, setDone] = useState<Set<number>>(new Set());
+  const toggleStep = (i: number) =>
+    setDone((d) => {
+      const next = new Set(d);
+      if (!next.delete(i)) next.add(i);
+      return next;
+    });
   const factor = amount / base;
 
   const lines = ingredients.map((l) => ({ ...l, ...shortfall(l, factor) }));
@@ -109,8 +120,8 @@ export function RecipeScaler({
                 </span>
                 {!l.have && l.in_pantry && l.on_hand !== null && Number(l.on_hand) > 0 && (
                   <div className="text-xs text-muted">
-                    have {fmtQty(l.on_hand, l.unit)}
-                    {l.missing !== null && ` · need ${fmtQty(l.missing, l.unit)} more`}
+                    have {fmtQty(l.on_hand, l.stock_unit)}
+                    {l.missing !== null && ` · need ${fmtQty(l.missing, l.stock_unit)} more`}
                   </div>
                 )}
               </div>
@@ -119,11 +130,37 @@ export function RecipeScaler({
         </ul>
       </section>
 
-      {recipe.instructions && (
+      {recipe.steps.length > 0 && (
         <section>
-          <h2 className="mb-2 font-semibold">Method</h2>
-          {scaled && <p className="mb-2 text-xs text-muted">Amounts written in the method are for {base} {unitWord}.</p>}
-          <div className="card leading-relaxed whitespace-pre-line">{recipe.instructions}</div>
+          <h2 className="mb-2 font-semibold">Steps</h2>
+          <p className="mb-2 text-xs text-muted">
+            Tap a step to tick it off while you cook.
+            {scaled && ` Amounts written in the steps are for ${base} ${unitWord}.`}
+          </p>
+          <ol className="card flex flex-col gap-1 p-2">
+            {recipe.steps.map((step, i) => {
+              const isDone = done.has(i);
+              return (
+                <li key={i}>
+                  <button
+                    type="button"
+                    onClick={() => toggleStep(i)}
+                    className={`flex w-full items-start gap-3 rounded-xl p-2 text-left transition hover:bg-background ${isDone ? "text-muted" : ""}`}
+                    aria-pressed={isDone}
+                  >
+                    <span
+                      className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${
+                        isDone ? "bg-accent text-white dark:text-black" : "bg-accent-soft text-accent"
+                      }`}
+                    >
+                      {isDone ? "✓" : i + 1}
+                    </span>
+                    <span className={`pt-0.5 leading-relaxed whitespace-pre-line ${isDone ? "line-through" : ""}`}>{step}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
         </section>
       )}
 
