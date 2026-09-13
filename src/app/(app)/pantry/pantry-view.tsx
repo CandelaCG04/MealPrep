@@ -5,6 +5,7 @@ import type { PantryItem } from "@/lib/types";
 import { useLocalPref } from "@/lib/use-local-pref";
 import { GRID_CLASS, PantryBoard } from "./pantry-board";
 import { RanOutCard, type PantryLayout } from "./pantry-card";
+import { pantryAsText } from "./pantry-text";
 
 const RAN_OUT = "__ran_out__";
 
@@ -85,15 +86,18 @@ export function PantryView({
             ))}
           </div>
         </div>
-        <div className="flex items-center justify-between text-xs text-muted">
+        <div className="flex items-center justify-between gap-3 text-xs text-muted">
           <span>
             {matches ? "Dragging is paused while searching." : inStock.length > 1 ? "Drag ⠿ to reorder or move between categories." : ""}
           </span>
-          {!matches && (inStockCategories.size > 1 || ranOut.length > 0) && (
-            <button type="button" className="shrink-0 underline" onClick={() => setAll(!allCollapsed)}>
-              {allCollapsed ? "Expand all" : "Collapse all"}
-            </button>
-          )}
+          <span className="flex shrink-0 items-center gap-3">
+            <CopyButton getText={() => pantryAsText(inStock, ranOut, categories)} />
+            {!matches && (inStockCategories.size > 1 || ranOut.length > 0) && (
+              <button type="button" className="underline" onClick={() => setAll(!allCollapsed)}>
+                {allCollapsed ? "Expand all" : "Collapse all"}
+              </button>
+            )}
+          </span>
         </div>
       </div>
 
@@ -127,5 +131,43 @@ export function PantryView({
 
       {nothingFound && <p className="text-center text-muted">Nothing in your pantry matches &ldquo;{query}&rdquo;.</p>}
     </>
+  );
+}
+
+/** Copies the whole pantry (not just search results) as text, with a short confirmation. */
+function CopyButton({ getText }: { getText: () => string }) {
+  const [status, setStatus] = useState<"idle" | "copied" | "failed">("idle");
+
+  async function copy() {
+    const text = getText();
+    try {
+      await navigator.clipboard.writeText(text);
+      setStatus("copied");
+    } catch {
+      // Older browsers / non-secure pages: fall back to a hidden textarea.
+      const area = document.createElement("textarea");
+      area.value = text;
+      area.setAttribute("readonly", "");
+      area.style.position = "fixed";
+      area.style.opacity = "0";
+      document.body.appendChild(area);
+      area.select();
+      const ok = document.execCommand("copy");
+      area.remove();
+      setStatus(ok ? "copied" : "failed");
+    }
+    setTimeout(() => setStatus("idle"), 2000);
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      className={`flex items-center gap-1 rounded-lg px-1 underline ${status === "copied" ? "text-accent no-underline" : status === "failed" ? "text-danger" : ""}`}
+      title="Copy everything in your pantry as text"
+      aria-live="polite"
+    >
+      {status === "copied" ? "✓ Copied" : status === "failed" ? "Couldn't copy" : "📋 Copy"}
+    </button>
   );
 }
