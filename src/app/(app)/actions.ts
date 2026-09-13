@@ -282,51 +282,40 @@ export async function saveRecipe(input: RecipeInput): Promise<{ error: string } 
     notes: input.notes,
   };
 
-  let recipeId = input.id;
-  if (recipeId) {
-    const { error } = await supabase.from("recipes").update(fields).eq("id", recipeId);
-    if (error) return { error: error.message };
-    await supabase.from("recipe_ingredients").delete().eq("recipe_id", recipeId);
-  } else {
-    const { data, error } = await supabase.from("recipes").insert(fields).select("id").single();
-    if (error) return { error: error.message };
-    recipeId = data.id;
-  }
-
-  // Merge lines that resolve to the same ingredient (converting units where possible).
-  type Row = { quantity: number | null; unit: string; note: string | null; optional: boolean; position: number };
-  const rows = new Map<string, Row>();
-  let position = 0;
-  for (const line of input.ingredients) {
-    if (!line.name.trim()) continue;
-    // A new ingredient's pantry unit comes from the recipe line (spoons/cups become ml).
-    const ingredientId = await ensureIngredient(line.name, stockUnitFor(line.unit), line.category);
-    const existing = rows.get(ingredientId);
-    if (existing) {
-      const factor = unitFactor(line.unit, existing.unit);
-      if (existing.quantity !== null && line.quantity && factor !== null) {
-        existing.quantity += line.quantity * factor;
-      } else if (existing.quantity === null && factor !== null && line.quantity) {
-        existing.quantity = line.quantity * factor;
+  let recipeId: string;
+  try {
+    // 1. Resolve every line to an ingredient BEFORE touching the recipe. Creating missing
+    //    ingredients is harmless if a later step fails; nothing existing is changed here.
+    type Row = { ingredient_id: string; quantity: number | null; unit: string; note: string | null; optional: boolean; position: number };
+    const rows = new Map<string, Row>();
+    for (const line of input.ingredients) {
+      if (!line.name.trim()) continue;
+      const unit = line.unit || "pc";
+      const quantity = typeof line.quantity === "number" && line.quantity > 0 ? line.quantity : null;
+      // A new ingredient's pantry unit comes from the recipe line (spoons/cups become ml).
+      const ingredientId = await ensureIngredient(line.name, stockUnitFor(unit), line.category);
+      const existing = rows.get(ingredientId);
+      if (existing) {
+        // Same ingredient listed twice: merge, converting units where possible.
+        const factor = unitFactor(unit, existing.unit);
+        if (quantity !== null && factor !== null) existing.quantity = (existing.quantity ?? 0) + quantity * factor;
+        existing.note = [existing.note, line.note].filter(Boolean).join("; ") || null;
+        existing.optional &&= line.optional;
+      } else {
+        rows.set(ingredientId, { ingredient_id: ingredientId, quantity, unit, note: line.note, optional: line.optional, position: rows.size });
       }
-      existing.note = [existing.note, line.note].filter(Boolean).join("; ") || null;
-      existing.optional &&= line.optional;
-    } else {
-      rows.set(ingredientId, {
-        quantity: line.quantity || null,
-        unit: line.unit,
-        note: line.note,
-        optional: line.optional,
-        position: position++,
-      });
     }
-  }
 
-  if (rows.size > 0) {
-    const { error } = await supabase
-      .from("recipe_ingredients")
-      .insert([...rows].map(([ingredient_id, r]) => ({ recipe_id: recipeId, ingredient_id, ...r })));
-    if (error) return { error: error.message };
+    // 2. Save the recipe and all its lines in one transaction: if anything fails, nothing changes.
+    const { data, error } = await supabase.rpc("save_recipe", {
+      p_recipe_id: input.id ?? null,
+      p_fields: fields,
+      p_lines: [...rows.values()],
+    });
+    if (error) return { error: `Couldn't save — your recipe wasn't changed. (${error.message})` };
+    recipeId = data as string;
+  } catch (e) {
+    return { error: `Couldn't save — your recipe wasn't changed. (${(e as Error).message})` };
   }
 
   refreshAll();

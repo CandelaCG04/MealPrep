@@ -90,8 +90,12 @@ export function RecipeEditor({
   function save() {
     setSaveError(undefined);
     startSaving(async () => {
-      const result = await saveRecipe({ ...recipe, id: initial?.id, ingredients: lines, steps: steps.map((s) => s.text) });
-      if (result?.error) setSaveError(result.error);
+      try {
+        const result = await saveRecipe({ ...recipe, id: initial?.id, ingredients: lines, steps: steps.map((s) => s.text) });
+        if (result?.error) setSaveError(result.error);
+      } catch {
+        setSaveError("Couldn't reach the server — check your connection. Your edits are still here; try saving again.");
+      }
     });
   }
 
