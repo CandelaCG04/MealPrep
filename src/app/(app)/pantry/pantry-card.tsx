@@ -1,6 +1,6 @@
 "use client";
 
-import { useOptimistic, useState, type HTMLAttributes, type Ref } from "react";
+import { useEffect, useOptimistic, useRef, useState, type HTMLAttributes, type ReactNode, type Ref } from "react";
 import { SaveError as SaveErrorText, fd, useAction } from "@/components/use-action";
 import { CATEGORIES, UNITS, categoryLabel, fmtQty, unitFactor, unitLabel, type PantryItem } from "@/lib/types";
 import {
@@ -17,12 +17,24 @@ import {
 const COUNT_UNITS = new Set(["pc", "portion", "can", "pack", "slice", "bunch", "clove"]);
 
 export type DragHandle = { ref: Ref<HTMLButtonElement>; props: HTMLAttributes<HTMLButtonElement> };
+export type PantryLayout = "list" | "grid";
 
 // ---------------------------------------------------------------------------
 // In-stock item
 // ---------------------------------------------------------------------------
 
-export function PantryCard({ item, handle, overlay }: { item: PantryItem; handle?: DragHandle; overlay?: boolean }) {
+export function PantryCard({
+  item,
+  handle,
+  overlay,
+  layout = "list",
+}: {
+  item: PantryItem;
+  /** Omitted when dragging isn't available (e.g. while searching). */
+  handle?: DragHandle;
+  overlay?: boolean;
+  layout?: PantryLayout;
+}) {
   const { name } = item.ingredients;
   const [{ quantity, unit }, setOptimistic] = useOptimistic({
     quantity: item.quantity === null ? null : Number(item.quantity),
@@ -30,6 +42,7 @@ export function PantryCard({ item, handle, overlay }: { item: PantryItem; handle
   });
   const [editing, setEditing] = useState(false);
   const { failed, run } = useAction();
+  const grid = layout === "grid";
 
   const saveQuantity = (value: number | null, newUnit: string = unit) =>
     run(async () => {
@@ -39,70 +52,107 @@ export function PantryCard({ item, handle, overlay }: { item: PantryItem; handle
 
   const counted = COUNT_UNITS.has(unit) && quantity !== null;
 
-  return (
-    <div
-      className={`flex flex-wrap items-center gap-2 rounded-2xl border border-border bg-surface py-2.5 pr-2 pl-1 ${
-        overlay ? "rotate-1 shadow-xl ring-2 ring-accent" : "shadow-sm"
+  const dragHandle = handle || overlay ? (
+    <button
+      type="button"
+      ref={handle?.ref}
+      {...handle?.props}
+      className={`flex shrink-0 cursor-grab touch-none items-center justify-center rounded-lg text-muted hover:bg-background active:cursor-grabbing ${
+        grid ? "h-6 w-5 text-sm" : "h-10 w-7 text-lg"
       }`}
+      aria-label={`Drag ${name}`}
     >
+      ⠿
+    </button>
+  ) : (
+    <span className={grid ? "w-0.5" : "w-2"} />
+  );
+
+  let amount: ReactNode;
+  if (editing) {
+    amount = (
+      <AmountEditor
+        initial={quantity}
+        unit={unit}
+        onCancel={() => setEditing(false)}
+        onSave={(v, u) => {
+          setEditing(false);
+          saveQuantity(v, u);
+        }}
+      />
+    );
+  } else if (counted) {
+    const step = `rounded-full text-lg hover:bg-surface ${grid ? "h-7 w-7 shrink-0" : "h-9 w-9"}`;
+    amount = (
+      <div className={`flex items-center rounded-full border border-border bg-background ${grid ? "w-full justify-between" : ""}`}>
+        <button type="button" className={step} onClick={() => saveQuantity(Math.max(0, quantity - 1))} aria-label={`One less ${name}`}>
+          −
+        </button>
+        <button
+          type="button"
+          className="min-w-0 truncate px-1 text-center text-sm font-semibold tabular-nums"
+          onClick={() => setEditing(true)}
+          aria-label={`Edit ${name} amount`}
+        >
+          {fmtQty(quantity)} <span className="font-normal text-muted">{unitLabel(unit, quantity)}</span>
+        </button>
+        <button type="button" className={step} onClick={() => saveQuantity(quantity + 1)} aria-label={`One more ${name}`}>
+          +
+        </button>
+      </div>
+    );
+  } else {
+    amount = (
       <button
         type="button"
-        ref={handle?.ref}
-        {...handle?.props}
-        className="flex h-10 w-7 shrink-0 cursor-grab touch-none items-center justify-center rounded-lg text-lg text-muted hover:bg-background active:cursor-grabbing"
-        aria-label={`Drag ${name}`}
+        onClick={() => setEditing(true)}
+        className={`rounded-full border border-border bg-background px-3 text-sm font-semibold tabular-nums hover:border-accent ${grid ? "w-full py-1" : "py-1.5"}`}
+        aria-label={`Edit ${name} amount`}
       >
-        ⠿
+        {quantity === null ? <span className="font-normal text-muted">some</span> : fmtQty(quantity, unit)}
       </button>
+    );
+  }
 
+  const menu = !overlay && !editing && (
+    <ItemMenu item={item} run={run}>
+      {(close) => (
+        <>
+          <MenuButton onClick={() => { close(); setEditing(true); }}>✏️ Edit amount or unit</MenuButton>
+          <MenuButton onClick={() => { close(); run(() => markRanOut(fd({ id: item.id }))); }}>🚫 Ran out</MenuButton>
+        </>
+      )}
+    </ItemMenu>
+  );
+
+  const frame = `rounded-2xl border border-border bg-surface ${overlay ? "rotate-1 shadow-xl ring-2 ring-accent" : "shadow-sm"}`;
+
+  if (grid) {
+    return (
+      <div className={`flex h-full flex-col gap-1 p-1.5 ${frame}`}>
+        <div className="flex items-center gap-0.5">
+          {dragHandle}
+          <div className="line-clamp-2 min-w-0 flex-1 text-sm leading-tight font-medium" title={name}>
+            {item.auto_restock && <span title="Auto-adds to the shopping list when it runs out">🔁 </span>}
+            {name}
+          </div>
+          {menu}
+        </div>
+        <div className="mt-auto">{amount}</div>
+        {failed && <SaveErrorText />}
+      </div>
+    );
+  }
+
+  return (
+    <div className={`flex flex-wrap items-center gap-2 py-2.5 pr-2 pl-1 ${frame}`}>
+      {dragHandle}
       <div className="min-w-0 flex-1">
         <div className="truncate font-medium">{name}</div>
         {item.auto_restock && <div className="text-xs text-accent">🔁 Auto-adds to list</div>}
       </div>
-
-      {editing ? (
-        <AmountEditor
-          initial={quantity}
-          unit={unit}
-          onCancel={() => setEditing(false)}
-          onSave={(v, u) => {
-            setEditing(false);
-            saveQuantity(v, u);
-          }}
-        />
-      ) : counted ? (
-        <div className="flex items-center rounded-full border border-border bg-background">
-          <button type="button" className="h-9 w-9 rounded-full text-lg hover:bg-surface" onClick={() => saveQuantity(Math.max(0, quantity - 1))} aria-label={`One less ${name}`}>
-            −
-          </button>
-          <button type="button" className="min-w-14 px-1 text-center text-sm font-semibold tabular-nums" onClick={() => setEditing(true)} aria-label={`Edit ${name} amount`}>
-            {fmtQty(quantity)} <span className="font-normal text-muted">{unitLabel(unit, quantity)}</span>
-          </button>
-          <button type="button" className="h-9 w-9 rounded-full text-lg hover:bg-surface" onClick={() => saveQuantity(quantity + 1)} aria-label={`One more ${name}`}>
-            +
-          </button>
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setEditing(true)}
-          className="rounded-full border border-border bg-background px-3 py-1.5 text-sm font-semibold tabular-nums hover:border-accent"
-          aria-label={`Edit ${name} amount`}
-        >
-          {quantity === null ? <span className="font-normal text-muted">some</span> : fmtQty(quantity, unit)}
-        </button>
-      )}
-
-      {!overlay && !editing && (
-        <ItemMenu item={item} run={run}>
-          {(close) => (
-            <>
-              <MenuButton onClick={() => { close(); setEditing(true); }}>✏️ Edit amount or unit</MenuButton>
-              <MenuButton onClick={() => { close(); run(() => markRanOut(fd({ id: item.id }))); }}>🚫 Ran out</MenuButton>
-            </>
-          )}
-        </ItemMenu>
-      )}
+      {amount}
+      {menu}
       {failed && <SaveErrorText className="basis-full pl-8" />}
     </div>
   );
@@ -112,10 +162,65 @@ export function PantryCard({ item, handle, overlay }: { item: PantryItem; handle
 // Ran-out item
 // ---------------------------------------------------------------------------
 
-export function RanOutCard({ item, onList }: { item: PantryItem; onList: boolean }) {
+export function RanOutCard({ item, onList, layout = "list" }: { item: PantryItem; onList: boolean; layout?: PantryLayout }) {
   const { name, unit } = item.ingredients;
   const [restocking, setRestocking] = useState(false);
   const { pending, failed, run } = useAction();
+
+  const editor = (
+    <AmountEditor
+      initial={item.usual_quantity === null ? null : Number(item.usual_quantity)}
+      unit={unit}
+      saveLabel="Restock"
+      onCancel={() => setRestocking(false)}
+      onSave={(v, u) => {
+        setRestocking(false);
+        run(() => restockItem(fd({ ingredient_id: item.ingredient_id, quantity: v, unit: u })));
+      }}
+    />
+  );
+  const addToList = () => run(() => addIngredientToList(fd({ ingredient_id: item.ingredient_id, name, quantity: item.usual_quantity })));
+  const usually = item.usual_quantity ? `Usually ${fmtQty(item.usual_quantity, unit)}` : "Ran out";
+
+  if (layout === "grid") {
+    return (
+      <div className="flex h-full flex-col gap-1 rounded-2xl border border-dashed border-border bg-surface/60 p-1.5 pl-2.5">
+        <div className="flex items-start gap-1">
+          <div className="min-w-0 flex-1 pt-0.5">
+            <div className="line-clamp-2 text-sm leading-tight font-medium text-muted" title={name}>{name}</div>
+            <div className="text-[11px] text-muted">
+              {usually}
+              {item.auto_restock && " · 🔁"}
+            </div>
+          </div>
+          {!restocking && <ItemMenu item={item} run={run} removeLabel="🗑️ Forget this item" />}
+        </div>
+        {restocking ? (
+          editor
+        ) : (
+          <div className="mt-auto flex gap-1">
+            {onList ? (
+              <span className="flex-1 rounded-full bg-accent-soft px-2 py-1 text-center text-xs font-medium text-accent">✓ On list</span>
+            ) : (
+              <button
+                type="button"
+                disabled={pending}
+                onClick={addToList}
+                className="flex-1 rounded-full border border-border bg-background px-2 py-1 text-xs font-medium hover:border-accent"
+                aria-label={`Add ${name} to shopping list`}
+              >
+                🛒 List
+              </button>
+            )}
+            <button type="button" onClick={() => setRestocking(true)} className="flex-1 rounded-full bg-accent px-2 py-1 text-xs font-medium text-white dark:text-black">
+              Restock
+            </button>
+          </div>
+        )}
+        {failed && <SaveErrorText />}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-dashed border-border bg-surface/60 py-2.5 pr-2 pl-3">
@@ -123,22 +228,13 @@ export function RanOutCard({ item, onList }: { item: PantryItem; onList: boolean
       <div className="min-w-44 flex-1">
         <div className="truncate font-medium text-muted">{name}</div>
         <div className="text-xs text-muted">
-          {item.usual_quantity ? `Usually ${fmtQty(item.usual_quantity, unit)}` : "Ran out"}
+          {usually}
           {item.auto_restock && " · 🔁 auto-adds"}
         </div>
       </div>
 
       {restocking ? (
-        <AmountEditor
-          initial={item.usual_quantity === null ? null : Number(item.usual_quantity)}
-          unit={unit}
-          saveLabel="Restock"
-          onCancel={() => setRestocking(false)}
-          onSave={(v, u) => {
-            setRestocking(false);
-            run(() => restockItem(fd({ ingredient_id: item.ingredient_id, quantity: v, unit: u })));
-          }}
-        />
+        editor
       ) : (
         <div className="ml-auto flex items-center gap-2">
           {onList ? (
@@ -147,7 +243,7 @@ export function RanOutCard({ item, onList }: { item: PantryItem; onList: boolean
             <button
               type="button"
               disabled={pending}
-              onClick={() => run(() => addIngredientToList(fd({ ingredient_id: item.ingredient_id, name, quantity: item.usual_quantity })))}
+              onClick={addToList}
               className="rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium hover:border-accent"
             >
               🛒 Add to list
@@ -242,13 +338,15 @@ function AmountEditor({
   );
 }
 
-function MenuButton({ children, onClick, danger }: { children: React.ReactNode; onClick: () => void; danger?: boolean }) {
+function MenuButton({ children, onClick, danger }: { children: ReactNode; onClick: () => void; danger?: boolean }) {
   return (
     <button type="button" onClick={onClick} className={`w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-background ${danger ? "text-danger" : ""}`}>
       {children}
     </button>
   );
 }
+
+const MENU_WIDTH = 240;
 
 function ItemMenu({
   item,
@@ -258,31 +356,59 @@ function ItemMenu({
 }: {
   item: PantryItem;
   run: (fn: () => Promise<unknown>) => void;
-  children?: (close: () => void) => React.ReactNode;
+  children?: (close: () => void) => ReactNode;
   removeLabel?: string;
 }) {
-  const [open, setOpen] = useState(false);
+  // Fixed position computed from the button, so the menu never runs off-screen (e.g. grid tiles on the left).
+  const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const button = useRef<HTMLButtonElement>(null);
+  const open = position !== null;
+
   const close = () => {
-    setOpen(false);
+    setPosition(null);
     setConfirmRemove(false);
   };
 
+  const measure = () => {
+    const r = button.current?.getBoundingClientRect();
+    return r ? { top: r.bottom + 4, left: Math.min(Math.max(8, r.right - MENU_WIDTH), window.innerWidth - MENU_WIDTH - 8) } : null;
+  };
+
+  // Keep the fixed menu attached to its button while the page scrolls or resizes
+  // (closing instead would make it vanish on the tiniest scroll, e.g. a phone's address bar moving).
+  useEffect(() => {
+    if (!open) return;
+    const follow = () => setPosition(measure());
+    window.addEventListener("scroll", follow, { passive: true, capture: true });
+    window.addEventListener("resize", follow);
+    return () => {
+      window.removeEventListener("scroll", follow, { capture: true });
+      window.removeEventListener("resize", follow);
+    };
+  }, [open]);
+
+  function toggle() {
+    if (open) return close();
+    setPosition(measure());
+  }
+
   return (
-    <div className={`relative ${open ? "z-30" : ""}`}>
+    <div className="shrink-0">
       <button
+        ref={button}
         type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex h-9 w-9 items-center justify-center rounded-full text-xl text-muted hover:bg-background"
+        onClick={toggle}
+        className="flex h-8 w-8 items-center justify-center rounded-full text-xl text-muted hover:bg-background"
         aria-label={`More options for ${item.ingredients.name}`}
         aria-expanded={open}
       >
         ⋯
       </button>
-      {open && (
+      {position && (
         <>
-          <div className="fixed inset-0 z-10" onClick={close} aria-hidden />
-          <div role="menu" className="absolute top-full right-0 z-20 mt-1 w-60 rounded-xl border border-border bg-surface p-1 shadow-xl">
+          <div className="fixed inset-0 z-40" onClick={close} aria-hidden />
+          <div role="menu" style={{ top: position.top, left: position.left, width: MENU_WIDTH }} className="fixed z-50 rounded-xl border border-border bg-surface p-1 shadow-xl">
             {children?.(close)}
             <MenuButton
               onClick={() => {

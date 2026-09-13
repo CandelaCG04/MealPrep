@@ -1,0 +1,131 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import type { PantryItem } from "@/lib/types";
+import { useLocalPref } from "@/lib/use-local-pref";
+import { GRID_CLASS, PantryBoard } from "./pantry-board";
+import { RanOutCard, type PantryLayout } from "./pantry-card";
+
+const RAN_OUT = "__ran_out__";
+
+/** Case- and accent-insensitive name search. */
+const normalize = (s: string) => s.toLowerCase().normalize("NFD").replace(/\p{M}/gu, "").trim();
+
+/** Toolbar (search, list/grid, collapse) around the pantry board and the ran-out list. */
+export function PantryView({
+  inStock,
+  ranOut,
+  onListIds,
+  categories,
+}: {
+  inStock: PantryItem[];
+  ranOut: PantryItem[];
+  onListIds: string[];
+  categories: string[];
+}) {
+  const [layout, setLayout] = useLocalPref("pantry-layout", "grid");
+  const [collapsedPref, setCollapsedPref] = useLocalPref("pantry-collapsed", "[]");
+  const [query, setQuery] = useState("");
+
+  const collapsed = useMemo(() => {
+    try {
+      return new Set<string>(JSON.parse(collapsedPref));
+    } catch {
+      return new Set<string>();
+    }
+  }, [collapsedPref]);
+  const toggle = (category: string) => {
+    const next = new Set(collapsed);
+    if (!next.delete(category)) next.add(category);
+    setCollapsedPref(JSON.stringify([...next]));
+  };
+
+  const q = normalize(query);
+  const matches = q ? (item: PantryItem) => normalize(item.ingredients.name).includes(q) : null;
+  const shownRanOut = matches ? ranOut.filter(matches) : ranOut;
+  const listed = new Set(onListIds);
+  const view = (layout === "list" ? "list" : "grid") as PantryLayout;
+
+  const inStockCategories = new Set(inStock.map((i) => i.ingredients.category));
+  const allCollapsed = [...inStockCategories].every((c) => collapsed.has(c)) && (!ranOut.length || collapsed.has(RAN_OUT));
+  const setAll = (collapse: boolean) =>
+    setCollapsedPref(JSON.stringify(collapse ? [...inStockCategories, ...(ranOut.length ? [RAN_OUT] : [])] : []));
+
+  const ranOutCollapsed = !matches && collapsed.has(RAN_OUT);
+  const nothingFound = matches && !inStock.some(matches) && !shownRanOut.length;
+
+  return (
+    <>
+      <div className="sticky top-0 z-20 -mx-4 flex flex-col gap-2 bg-background/95 px-4 py-2 backdrop-blur md:top-12">
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <span className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted">🔍</span>
+            <input
+              type="search"
+              className="input pl-9"
+              placeholder={`Search ${inStock.length + ranOut.length} items…`}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              aria-label="Search pantry"
+            />
+          </div>
+          <div className="flex rounded-xl border border-border bg-surface p-0.5" role="group" aria-label="Layout">
+            {(["grid", "list"] as const).map((l) => (
+              <button
+                key={l}
+                type="button"
+                onClick={() => setLayout(l)}
+                aria-pressed={view === l}
+                aria-label={l === "grid" ? "Grid view" : "List view"}
+                title={l === "grid" ? "Grid view" : "List view"}
+                className={`rounded-lg px-2.5 py-1.5 text-base ${view === l ? "bg-accent-soft text-accent" : "text-muted"}`}
+              >
+                {l === "grid" ? "▦" : "☰"}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="flex items-center justify-between text-xs text-muted">
+          <span>
+            {matches ? "Dragging is paused while searching." : inStock.length > 1 ? "Drag ⠿ to reorder or move between categories." : ""}
+          </span>
+          {!matches && (inStockCategories.size > 1 || ranOut.length > 0) && (
+            <button type="button" className="shrink-0 underline" onClick={() => setAll(!allCollapsed)}>
+              {allCollapsed ? "Expand all" : "Collapse all"}
+            </button>
+          )}
+        </div>
+      </div>
+
+      <PantryBoard items={inStock} categories={categories} layout={view} collapsed={collapsed} onToggleCategory={toggle} matches={matches} />
+
+      {shownRanOut.length > 0 && (
+        <section>
+          <h2 className="mb-2 font-semibold">
+            <button
+              type="button"
+              onClick={() => toggle(RAN_OUT)}
+              disabled={!!matches}
+              aria-expanded={!ranOutCollapsed}
+              className="flex items-baseline gap-2 rounded-lg py-1 pr-2 hover:text-accent"
+            >
+              {!matches && <span className={`inline-block w-3 text-xs text-muted transition ${ranOutCollapsed ? "" : "rotate-90"}`}>▶</span>}
+              🚫 Ran out <span className="text-sm font-normal text-muted">{shownRanOut.length}</span>
+            </button>
+          </h2>
+          {!ranOutCollapsed && (
+            <ul className={view === "grid" ? GRID_CLASS : "flex flex-col gap-2"}>
+              {shownRanOut.map((item) => (
+                <li key={item.id}>
+                  <RanOutCard item={item} onList={listed.has(item.ingredient_id)} layout={view} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+
+      {nothingFound && <p className="text-center text-muted">Nothing in your pantry matches &ldquo;{query}&rdquo;.</p>}
+    </>
+  );
+}

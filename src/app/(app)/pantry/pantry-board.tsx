@@ -16,11 +16,18 @@ import {
   type DragOverEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import {
+  SortableContext,
+  arrayMove,
+  rectSortingStrategy,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { categoryLabel, type PantryItem } from "@/lib/types";
 import { reorderPantry } from "../actions";
-import { PantryCard } from "./pantry-card";
+import { PantryCard, type PantryLayout } from "./pantry-card";
 
 type Columns = Record<string, PantryItem[]>;
 
@@ -29,22 +36,44 @@ const SECTION = "section:";
 const CHIP = "chip:";
 const ids = (list: PantryItem[] = []) => list.map((i) => i.id).join();
 
+/** Grid tiles; when a tile opens its amount editor it takes the whole row. */
+export const GRID_CLASS = "grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 [&>li:has(form)]:col-span-full";
+
 function groupItems(items: PantryItem[], categories: string[]): Columns {
   const columns: Columns = Object.fromEntries(categories.map((c) => [c, []]));
   for (const item of items) (columns[item.ingredients.category] ??= []).push(item);
   return columns;
 }
 
-/** Chips win when the pointer is on one; otherwise the nearest card/section. */
+/**
+ * Small targets win when the pointer is right on them: tray chips and collapsed category headers.
+ * (Nearest-corner matching measures from the whole dragged card, so thin targets would otherwise lose
+ * to neighbouring cards.) Everything else: the nearest card/section.
+ */
 const collisionDetection: CollisionDetection = (args) => {
-  const chips = args.droppableContainers.filter((c) => String(c.id).startsWith(CHIP));
-  const onChip = pointerWithin({ ...args, droppableContainers: chips });
-  if (onChip.length) return onChip;
+  const pointerTargets = args.droppableContainers.filter((c) => String(c.id).startsWith(CHIP) || c.data.current?.collapsed);
+  const onTarget = pointerWithin({ ...args, droppableContainers: pointerTargets });
+  if (onTarget.length) return onTarget;
   return closestCorners({ ...args, droppableContainers: args.droppableContainers.filter((c) => !String(c.id).startsWith(CHIP)) });
 };
 
 /** In-stock pantry items grouped by category, reorderable and movable by drag and drop. */
-export function PantryBoard({ items, categories }: { items: PantryItem[]; categories: string[] }) {
+export function PantryBoard({
+  items,
+  categories,
+  layout,
+  collapsed,
+  onToggleCategory,
+  matches,
+}: {
+  items: PantryItem[];
+  categories: string[];
+  layout: PantryLayout;
+  collapsed: Set<string>;
+  onToggleCategory: (category: string) => void;
+  /** When searching: which items to show. Dragging is paused while a search is active. */
+  matches: ((item: PantryItem) => boolean) | null;
+}) {
   const [columns, setColumns] = useState(() => groupItems(items, categories));
   const [drag, setDrag] = useState<{ id: string; before: Columns } | null>(null);
   const [, startSaving] = useTransition();
@@ -69,6 +98,29 @@ export function PantryBoard({ items, categories }: { items: PantryItem[]; catego
   };
 
   const order = [...categories, ...Object.keys(columns).filter((c) => !categories.includes(c))];
+
+  // ---- Searching: plain filtered sections, no drag and drop, all expanded.
+  if (matches) {
+    const found = order.map((c) => ({ category: c, items: (columns[c] ?? []).filter(matches) })).filter((g) => g.items.length);
+    if (!found.length) return null;
+    return (
+      <>
+        {found.map(({ category, items: list }) => (
+          <section key={category}>
+            <SectionHeader category={category} count={list.length} />
+            <ul className={layout === "grid" ? GRID_CLASS : "flex flex-col gap-2"}>
+              {list.map((item) => (
+                <li key={item.id}>
+                  <PantryCard item={item} layout={layout} />
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))}
+      </>
+    );
+  }
+
   const activeItem = drag ? Object.values(columns).flat().find((i) => i.id === drag.id) : undefined;
   // Sections on screen: anything with items, plus anything that had items when the drag started
   // (so a section doesn't vanish — and shift the page — as you drag its last item out).
@@ -166,32 +218,72 @@ export function PantryBoard({ items, categories }: { items: PantryItem[]; catego
       )}
 
       {visible.map((category) => (
-        <CategorySection key={category} category={category} items={columns[category] ?? []} />
+        <CategorySection
+          key={category}
+          category={category}
+          items={columns[category] ?? []}
+          layout={layout}
+          collapsed={collapsed.has(category)}
+          onToggle={() => onToggleCategory(category)}
+        />
       ))}
 
       {drag && trayCategories.length > 0 && <MoveTray categories={trayCategories} />}
 
       <DragOverlay dropAnimation={{ duration: 150, easing: "ease-out" }}>
-        {activeItem ? <PantryCard item={activeItem} overlay /> : null}
+        {activeItem ? <PantryCard item={activeItem} layout={layout} overlay /> : null}
       </DragOverlay>
     </DndContext>
   );
 }
 
-function CategorySection({ category, items }: { category: string; items: PantryItem[] }) {
-  const { setNodeRef } = useDroppable({ id: SECTION + category });
+function SectionHeader({ category, count, collapsed, onToggle }: { category: string; count: number; collapsed?: boolean; onToggle?: () => void }) {
+  const content = (
+    <>
+      {onToggle && <span className={`inline-block w-3 text-xs text-muted transition ${collapsed ? "" : "rotate-90"}`}>▶</span>}
+      {categoryLabel(category)}
+      <span className="text-sm font-normal text-muted">{count}</span>
+    </>
+  );
   return (
-    <section ref={setNodeRef}>
-      <h2 className="mb-2 flex items-baseline gap-2 font-semibold">
-        {categoryLabel(category)}
-        <span className="text-sm font-normal text-muted">{items.length}</span>
-      </h2>
-      <SortableContext items={items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
-        <ul className="flex min-h-14 flex-col gap-2">
-          {items.map((item) => (
-            <SortableCard key={item.id} item={item} />
-          ))}
-        </ul>
+    <h2 className="mb-2 font-semibold">
+      {onToggle ? (
+        <button type="button" onClick={onToggle} aria-expanded={!collapsed} className="flex items-baseline gap-2 rounded-lg py-1 pr-2 hover:text-accent">
+          {content}
+        </button>
+      ) : (
+        <span className="flex items-baseline gap-2 py-1">{content}</span>
+      )}
+    </h2>
+  );
+}
+
+function CategorySection({
+  category,
+  items,
+  layout,
+  collapsed,
+  onToggle,
+}: {
+  category: string;
+  items: PantryItem[];
+  layout: PantryLayout;
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
+  // The whole section (header included) is a drop target, so you can drop onto a collapsed category.
+  const { setNodeRef, isOver } = useDroppable({ id: SECTION + category, data: { collapsed } });
+  return (
+    <section ref={setNodeRef} className={`rounded-2xl ${collapsed && isOver ? "bg-accent-soft" : ""}`}>
+      <SectionHeader category={category} count={items.length} collapsed={collapsed} onToggle={onToggle} />
+      <SortableContext items={collapsed ? [] : items.map((i) => i.id)} strategy={layout === "grid" ? rectSortingStrategy : verticalListSortingStrategy}>
+        {!collapsed && (
+          <ul className={layout === "grid" ? `${GRID_CLASS} min-h-14` : "flex min-h-14 flex-col gap-2"}>
+            {items.map((item) => (
+              <SortableCard key={item.id} item={item} layout={layout} />
+            ))}
+          </ul>
+        )}
       </SortableContext>
     </section>
   );
@@ -227,11 +319,11 @@ function TrayChip({ category }: { category: string }) {
   );
 }
 
-function SortableCard({ item }: { item: PantryItem }) {
+function SortableCard({ item, layout }: { item: PantryItem; layout: PantryLayout }) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id: item.id });
   return (
     <li ref={setNodeRef} style={{ transform: CSS.Translate.toString(transform), transition }} className={isDragging ? "opacity-30" : ""}>
-      <PantryCard item={item} handle={{ ref: setActivatorNodeRef, props: { ...attributes, ...listeners } }} />
+      <PantryCard item={item} layout={layout} handle={{ ref: setActivatorNodeRef, props: { ...attributes, ...listeners } }} />
     </li>
   );
 }

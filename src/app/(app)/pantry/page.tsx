@@ -5,8 +5,7 @@ import { Submit } from "@/components/submit";
 import { IngredientFields } from "@/components/ingredient-input";
 import { aiEnabled } from "@/lib/ai";
 import { QuickAdd } from "./quick-add";
-import { PantryBoard } from "./pantry-board";
-import { RanOutCard } from "./pantry-card";
+import { PantryView } from "./pantry-view";
 
 // Same categories as the shopping list; cooked meals first since they need eating soonest.
 const CATEGORY_ORDER = ["cooked", ...CATEGORIES.filter((c) => c !== "cooked")];
@@ -27,14 +26,10 @@ export default async function PantryPage() {
   const isOut = (i: PantryItem) => i.quantity !== null && Number(i.quantity) <= 0;
   const inStock = all.filter((i) => !isOut(i));
   const ranOut = all.filter(isOut).sort((a, b) => a.ingredients.name.localeCompare(b.ingredients.name));
-  const listed = new Set((onList ?? []).map((r) => r.ingredient_id));
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="h1">Pantry</h1>
-        {inStock.length > 1 && <p className="text-sm text-muted">Drag ⠿ to reorder or move items between categories.</p>}
-      </div>
+      <h1 className="h1">Pantry</h1>
 
       {aiEnabled() && <QuickAdd />}
 
@@ -51,21 +46,13 @@ export default async function PantryPage() {
         </form>
       </details>
 
-      <PantryBoard items={inStock} categories={CATEGORY_ORDER} />
-
-      {ranOut.length > 0 && (
-        <section>
-          <h2 className="mb-2 flex items-baseline gap-2 font-semibold">
-            🚫 Ran out <span className="text-sm font-normal text-muted">{ranOut.length}</span>
-          </h2>
-          <ul className="flex flex-col gap-2">
-            {ranOut.map((item) => (
-              <li key={item.id}>
-                <RanOutCard item={item} onList={listed.has(item.ingredient_id)} />
-              </li>
-            ))}
-          </ul>
-        </section>
+      {all.length > 0 && (
+        <PantryView
+          inStock={inStock}
+          ranOut={ranOut}
+          onListIds={(onList ?? []).map((r) => r.ingredient_id)}
+          categories={CATEGORY_ORDER}
+        />
       )}
 
       {!all.length && <p className="text-muted">Your pantry is empty. Add what you have above.</p>}
