@@ -16,6 +16,8 @@ export type PantryItem = {
   ingredient_id: string;
   quantity: number | null;
   location: Location;
+  auto_restock: boolean;
+  usual_quantity: number | null;
   expires_on: string | null;
   updated_at: string;
   ingredients: Ingredient;
@@ -61,6 +63,9 @@ export type ShoppingListRow = {
   on_hand: number | null;
   to_buy: number | null;
   for_recipes: string[];
+  planned_short: boolean;
+  manual: boolean;
+  restock: boolean;
 };
 
 export type ShoppingExtra = {
@@ -86,10 +91,24 @@ export type PlannedMeal = {
   recipes: { title: string };
 };
 
+const UNIT_LABELS: Record<string, [singular: string, plural: string]> = {
+  pc: ["unit", "units"],
+  can: ["can", "cans"],
+  pack: ["pack", "packs"],
+  cup: ["cup", "cups"],
+};
+
+/** Human label for a stored unit, e.g. "pc" -> "units". */
+export function unitLabel(unit: string, amount?: number) {
+  const labels = UNIT_LABELS[unit];
+  if (!labels) return unit;
+  return amount === 1 ? labels[0] : labels[1];
+}
+
 /** Postgres numeric comes back as a string; normalise for display. */
 export function fmtQty(q: number | string | null | undefined, unit?: string) {
   if (q === null || q === undefined) return "";
   const n = Number(q);
   const s = Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/\.?0+$/, "");
-  return unit ? `${s} ${unit}` : s;
+  return unit ? `${s} ${unitLabel(unit, n)}` : s;
 }

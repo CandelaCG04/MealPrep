@@ -2,7 +2,8 @@
 
 import { useActionState, useState, useTransition } from "react";
 import { importRecipe, saveRecipe, type ImportState, type RecipeInput } from "../actions";
-import { CATEGORIES, UNITS, type Ingredient } from "@/lib/types";
+import { CATEGORIES, UNITS, unitLabel, type Ingredient } from "@/lib/types";
+import { IngredientInput } from "@/components/ingredient-input";
 
 type Line = RecipeInput["ingredients"][number] & { key: string };
 
@@ -115,17 +116,14 @@ export function RecipeEditor({
 
       <div className="card flex flex-col gap-3">
         <h2 className="font-semibold">Ingredients</h2>
-        <datalist id="catalog">
-          {catalog.map((i) => <option key={i.id} value={i.name} />)}
-        </datalist>
         {lines.map((l) => {
           const known = byName.get(l.name.trim().toLowerCase());
           return (
-            <div key={l.key} className="grid grid-cols-[1fr_5rem_5rem_auto] gap-2 border-b border-border pb-3 last:border-0">
-              <input className="input" list="catalog" placeholder="Ingredient" value={l.name} onChange={(e) => updateLine(l.key, { name: e.target.value })} />
+            <div key={l.key} className="grid grid-cols-[1fr_5rem_5.5rem_auto] items-start gap-2 border-b border-border pb-3 last:border-0">
+              <IngredientInput catalog={catalog} value={l.name} onChange={(name) => updateLine(l.key, { name })} />
               <input className="input" type="number" step="any" min="0" placeholder="qty" value={l.quantity ?? ""} onChange={(e) => updateLine(l.key, { quantity: e.target.value ? Number(e.target.value) : null })} />
-              <select className="input px-1" value={l.unit} disabled={!!known} onChange={(e) => updateLine(l.key, { unit: e.target.value })}>
-                {[...new Set([l.unit, ...UNITS])].map((u) => <option key={u}>{u}</option>)}
+              <select className="input px-1" value={l.unit} disabled={!!known} onChange={(e) => updateLine(l.key, { unit: e.target.value })} aria-label="Unit">
+                {[...new Set([l.unit, ...UNITS])].map((u) => <option key={u} value={u}>{unitLabel(u)}</option>)}
               </select>
               <button type="button" className="btn px-2 text-muted" aria-label="Remove ingredient" onClick={() => setLines(lines.filter((x) => x.key !== l.key))}>✕</button>
               <input className="input col-span-2 py-1 text-sm" placeholder="note (e.g. diced)" value={l.note ?? ""} onChange={(e) => updateLine(l.key, { note: e.target.value || null })} />

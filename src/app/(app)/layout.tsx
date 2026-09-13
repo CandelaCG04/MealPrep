@@ -5,7 +5,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
   const supabase = await createClient();
   const [{ count: listCount }, { count: extrasCount }] = await Promise.all([
     supabase.from("shopping_list").select("*", { count: "exact", head: true }),
-    supabase.from("shopping_extras").select("*", { count: "exact", head: true }),
+    supabase.from("shopping_extras").select("*", { count: "exact", head: true }).is("ingredient_id", null),
   ]);
 
   return (

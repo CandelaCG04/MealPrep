@@ -56,6 +56,43 @@ export async function addPantryItem(fd: FormData) {
     p_ingredient_id: id,
     p_amount: num(fd, "quantity"),
     p_location: str(fd, "location") || "pantry",
+    p_auto_restock: fd.get("auto_restock") === "on",
+  }));
+  refreshAll();
+}
+
+/** Ran out: keep the item (quantity 0) so it's easy to restock or re-buy. */
+export async function markRanOut(fd: FormData) {
+  const supabase = await db();
+  check(await supabase
+    .from("pantry_items")
+    .update({ quantity: 0, updated_at: new Date().toISOString() })
+    .eq("id", str(fd, "id")));
+  refreshAll();
+}
+
+export async function setAutoRestock(fd: FormData) {
+  const supabase = await db();
+  check(await supabase
+    .from("pantry_items")
+    .update({ auto_restock: str(fd, "value") === "true" })
+    .eq("id", str(fd, "id")));
+  refreshAll();
+}
+
+export async function restockItem(fd: FormData) {
+  const supabase = await db();
+  check(await supabase.rpc("add_stock", { p_ingredient_id: str(fd, "ingredient_id"), p_amount: num(fd, "quantity") }));
+  refreshAll();
+}
+
+/** Put a known ingredient on the shopping list by hand. */
+export async function addIngredientToList(fd: FormData) {
+  const supabase = await db();
+  check(await supabase.from("shopping_extras").insert({
+    name: str(fd, "name"),
+    ingredient_id: str(fd, "ingredient_id"),
+    quantity: num(fd, "quantity"),
   }));
   refreshAll();
 }
@@ -274,15 +311,28 @@ export async function buyItem(fd: FormData) {
   refreshAll();
 }
 
+/** Add anything to the list. It becomes an ingredient so it has a unit and lands in the pantry when bought. */
 export async function addExtra(fd: FormData) {
   const supabase = await db();
-  check(await supabase.from("shopping_extras").insert({ name: str(fd, "name"), quantity: num(fd, "quantity") }));
+  const name = str(fd, "name");
+  const ingredientId = await ensureIngredient(name, str(fd, "unit") || "pc", str(fd, "category") || "other");
+  check(await supabase.from("shopping_extras").insert({ name, ingredient_id: ingredientId, quantity: num(fd, "quantity") }));
   refreshAll();
 }
 
+/** Legacy free-text list items (no ingredient). */
 export async function removeExtra(fd: FormData) {
   const supabase = await db();
   check(await supabase.from("shopping_extras").delete().eq("id", str(fd, "id")));
+  refreshAll();
+}
+
+/** Take an ingredient off the list: drops manual entries and stops auto-restock for it. */
+export async function removeFromList(fd: FormData) {
+  const supabase = await db();
+  const ingredientId = str(fd, "ingredient_id");
+  check(await supabase.from("shopping_extras").delete().eq("ingredient_id", ingredientId));
+  check(await supabase.from("pantry_items").update({ auto_restock: false }).eq("ingredient_id", ingredientId));
   refreshAll();
 }
 

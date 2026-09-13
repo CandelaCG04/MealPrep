@@ -9,7 +9,7 @@ export default async function Home() {
     supabase.from("frozen_meals").select("*").order("frozen_on").returns<FrozenMeal[]>(),
     supabase.from("recipe_summary").select("*").returns<RecipeSummary[]>(),
     supabase.from("shopping_list").select("ingredient_id", { count: "exact", head: true }),
-    supabase.from("pantry_items").select("id", { count: "exact", head: true }),
+    supabase.from("pantry_items").select("id", { count: "exact", head: true }).or("quantity.is.null,quantity.gt.0"),
   ]);
 
   const frozenMeals = frozen.data ?? [];
