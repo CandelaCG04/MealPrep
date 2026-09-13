@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import {
   CATEGORIES,
+  categoryLabel,
   fmtQty,
   type Ingredient,
   type PlannedMeal,
@@ -47,7 +48,7 @@ export default async function ShoppingPage() {
 
       {groups.map((group) => (
         <section key={group.category}>
-          <h2 className="label">{group.category}</h2>
+          <h2 className="mb-2 font-semibold">{categoryLabel(group.category)}</h2>
           <ul className="card divide-y divide-border p-0">
             {group.items.map((item) => (
               <li key={item.ingredient_id} className="flex items-center gap-3 px-4 py-3">

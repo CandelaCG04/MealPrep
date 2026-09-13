@@ -61,6 +61,13 @@ export async function addPantryItem(fd: FormData) {
   refreshAll();
 }
 
+/** Changes the ingredient's category everywhere (pantry groups and shopping list sections). */
+export async function setIngredientCategory(fd: FormData) {
+  const supabase = await db();
+  check(await supabase.from("ingredients").update({ category: str(fd, "category") }).eq("id", str(fd, "ingredient_id")));
+  refreshAll();
+}
+
 /** Ran out: keep the item (quantity 0) so it's easy to restock or re-buy. */
 export async function markRanOut(fd: FormData) {
   const supabase = await db();

@@ -2,7 +2,7 @@
 
 import { useActionState, useEffect, useRef, useState, useTransition } from "react";
 import { importRecipe, saveRecipe, type ImportState, type RecipeInput } from "../actions";
-import { CATEGORIES, UNITS, ingredientFactor, unitLabel, type Conversion, type Ingredient } from "@/lib/types";
+import { CATEGORIES, UNITS, categoryLabel, ingredientFactor, unitLabel, type Conversion, type Ingredient } from "@/lib/types";
 import { UnitHint } from "./unit-hint";
 import { fmtMinutes } from "@/lib/dates";
 import { IngredientInput } from "@/components/ingredient-input";
@@ -171,7 +171,7 @@ export function RecipeEditor({
                 </label>
                 {!known && l.name.trim() && (
                   <select className="input col-span-3 py-1 text-sm" value={l.category} onChange={(e) => updateLine(l.key, { category: e.target.value })} aria-label="Category">
-                    {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+                    {CATEGORIES.map((c) => <option key={c} value={c}>{categoryLabel(c)}</option>)}
                   </select>
                 )}
               </div>

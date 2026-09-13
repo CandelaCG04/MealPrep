@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
-import { LOCATIONS, unitLabel, type Ingredient, type PantryItem } from "@/lib/types";
+import { CATEGORIES, LOCATIONS, categoryLabel, unitLabel, type Ingredient, type PantryItem } from "@/lib/types";
+import { CategorySelect } from "@/components/category-select";
 import {
   addIngredientToList,
   addPantryItem,
@@ -14,7 +15,7 @@ import { IngredientFields } from "@/components/ingredient-input";
 import { aiEnabled } from "@/lib/ai";
 import { QuickAdd } from "./quick-add";
 
-const LOCATION_LABEL = { pantry: "🥫 Pantry", fridge: "🧀 Fridge", freezer: "🧊 Freezer (raw)" } as const;
+const LOCATION_TAG = { pantry: "cupboard", fridge: "❄️ fridge", freezer: "🧊 freezer" } as const;
 
 export default async function PantryPage() {
   const supabase = await createClient();
@@ -30,6 +31,13 @@ export default async function PantryPage() {
   const ranOut = sorted.filter(isOut);
   const listed = new Set((onList ?? []).map((r) => r.ingredient_id));
 
+  // Same categories as the shopping list; cooked meals first since they need eating soonest.
+  const order = ["cooked", ...CATEGORIES.filter((c) => c !== "cooked")];
+  const extra = [...new Set(inStock.map((i) => i.ingredients.category))].filter((c) => !order.includes(c));
+  const groups = [...order, ...extra]
+    .map((category) => ({ category, items: inStock.filter((i) => i.ingredients.category === category) }))
+    .filter((g) => g.items.length);
+
   return (
     <div className="flex flex-col gap-6">
       <h1 className="h1">Pantry</h1>
@@ -43,7 +51,7 @@ export default async function PantryPage() {
           <div>
             <label className="label" htmlFor="location">Where</label>
             <select className="input" id="location" name="location">
-              {LOCATIONS.map((l) => <option key={l}>{l}</option>)}
+              {LOCATIONS.map((l) => <option key={l} value={l}>{l === "pantry" ? "cupboard" : l}</option>)}
             </select>
           </div>
           <label className="flex items-center gap-2 self-end pb-2 text-sm">
@@ -55,17 +63,22 @@ export default async function PantryPage() {
         </form>
       </details>
 
-      {LOCATIONS.map((loc) => {
-        const group = inStock.filter((i) => i.location === loc);
-        if (!group.length) return null;
+      {groups.map(({ category, items: group }) => {
         return (
-          <section key={loc}>
-            <h2 className="mb-2 font-semibold">{LOCATION_LABEL[loc]}</h2>
+          <section key={category}>
+            <h2 className="mb-2 font-semibold">
+              {categoryLabel(category)} <span className="text-sm font-normal text-muted">{group.length}</span>
+            </h2>
             <ul className="card divide-y divide-border p-0">
               {group.map((item) => (
                 <li key={item.id} className="flex flex-col gap-1 px-4 py-2">
                   <div className="flex items-center gap-2">
-                    <span className="flex-1">{item.ingredients.name}</span>
+                    <span className="flex-1">
+                      {item.ingredients.name}
+                      {item.location !== "pantry" && (
+                        <span className="ml-2 rounded-full bg-background px-2 py-0.5 text-xs text-muted">{LOCATION_TAG[item.location]}</span>
+                      )}
+                    </span>
                     <form action={setPantryQuantity} className="flex items-center gap-1">
                       <input type="hidden" name="id" value={item.id} />
                       <input
@@ -82,12 +95,15 @@ export default async function PantryPage() {
                       <Submit className="btn-ghost px-2 py-1" aria-label="Save amount">✓</Submit>
                     </form>
                   </div>
-                  <div className="flex items-center gap-3 text-xs">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                     <form action={markRanOut}>
                       <input type="hidden" name="id" value={item.id} />
                       <Submit className="text-warn underline">Ran out</Submit>
                     </form>
                     <AutoToggle item={item} />
+                    <span className="ml-auto">
+                      <CategorySelect ingredientId={item.ingredient_id} category={item.ingredients.category} name={item.ingredients.name} />
+                    </span>
                   </div>
                 </li>
               ))}

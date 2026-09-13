@@ -1,4 +1,4 @@
-export const UNITS = ["g", "kg", "ml", "l", "pc", "tbsp", "tsp", "cup", "can", "pack", "clove", "slice", "pinch", "bunch"] as const;
+export const UNITS = ["g", "kg", "ml", "l", "pc", "tbsp", "tsp", "cup", "can", "pack", "clove", "slice", "pinch", "bunch", "portion"] as const;
 
 /** Keep in sync with public.unit_factor() in the database. */
 const UNIT_SIZES: Record<string, [dimension: "mass" | "volume", size: number]> = {
@@ -54,7 +54,23 @@ export function ingredientFactor(
 export function stockUnitFor(unit: string) {
   return ["tsp", "tbsp", "cup"].includes(unit) ? "ml" : unit;
 }
-export const CATEGORIES = ["produce", "dairy", "meat", "fish", "bakery", "pantry", "spices", "frozen", "drinks", "other"] as const;
+export const CATEGORIES = ["produce", "dairy", "meat", "fish", "bakery", "pantry", "spices", "frozen", "drinks", "cooked", "other"] as const;
+
+export const CATEGORY_LABELS: Record<string, string> = {
+  cooked: "🍲 Cooked meals",
+  produce: "🥬 Produce",
+  dairy: "🧀 Dairy",
+  meat: "🥩 Meat",
+  fish: "🐟 Fish",
+  bakery: "🍞 Bakery",
+  pantry: "🥫 Pantry staples",
+  spices: "🧂 Spices",
+  frozen: "🧊 Frozen",
+  drinks: "🥤 Drinks",
+  other: "📦 Other",
+};
+
+export const categoryLabel = (category: string) => CATEGORY_LABELS[category] ?? `📦 ${category}`;
 export const LOCATIONS = ["pantry", "fridge", "freezer"] as const;
 
 export type Location = (typeof LOCATIONS)[number];
@@ -158,6 +174,7 @@ const UNIT_LABELS: Record<string, [singular: string, plural: string]> = {
   slice: ["slice", "slices"],
   pinch: ["pinch", "pinches"],
   bunch: ["bunch", "bunches"],
+  portion: ["portion", "portions"],
 };
 
 /** Human label for a stored unit, e.g. "pc" -> "units". */

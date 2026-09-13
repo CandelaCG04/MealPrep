@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { CATEGORIES, UNITS, unitLabel, type Ingredient } from "@/lib/types";
+import { CATEGORIES, UNITS, categoryLabel, unitLabel, type Ingredient } from "@/lib/types";
 
 /** Spellings that should count as the same ingredient: case, accents, plurals. */
 function variants(name: string) {
@@ -189,8 +189,11 @@ export function IngredientFields({
         name.trim() && (
           <div className="col-span-3">
             <label className="label" htmlFor={`${nameId}-c`}>Category (new ingredient)</label>
-            <select className="input" id={`${nameId}-c`} name="category" value={category} onChange={(e) => setCategory(e.target.value)}>
-              {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+            <select className="input" id={`${nameId}-c`} name="category" value={category} onChange={(e) => {
+                setCategory(e.target.value);
+                if (e.target.value === "cooked") setUnit("portion"); // leftovers are counted in portions
+              }}>
+              {CATEGORIES.map((c) => <option key={c} value={c}>{categoryLabel(c)}</option>)}
             </select>
           </div>
         )
