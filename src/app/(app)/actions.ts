@@ -112,8 +112,22 @@ export async function setAutoRestock(fd: FormData) {
   refreshAll();
 }
 
+/**
+ * If the form sends a unit different from the ingredient's, switch the pantry to it
+ * (stock converted when compatible, e.g. g -> kg; otherwise reset — the caller then sets the new amount).
+ */
+async function switchUnitIfChanged(ingredientId: string, unit: string) {
+  if (!ingredientId || !unit) return;
+  const supabase = await db();
+  const { data } = await supabase.from("ingredients").select("unit").eq("id", ingredientId).single();
+  if (data && data.unit !== unit) {
+    check(await supabase.rpc("change_ingredient_unit", { p_ingredient_id: ingredientId, p_unit: unit }));
+  }
+}
+
 export async function restockItem(fd: FormData) {
   const supabase = await db();
+  await switchUnitIfChanged(str(fd, "ingredient_id"), str(fd, "unit"));
   check(await supabase.rpc("add_stock", { p_ingredient_id: str(fd, "ingredient_id"), p_amount: num(fd, "quantity") }));
   refreshAll();
 }
@@ -129,8 +143,10 @@ export async function addIngredientToList(fd: FormData) {
   refreshAll();
 }
 
+/** Set a pantry item's amount; optionally also switch the unit it's counted in (send ingredient_id + unit). */
 export async function setPantryQuantity(fd: FormData) {
   const supabase = await db();
+  await switchUnitIfChanged(str(fd, "ingredient_id"), str(fd, "unit"));
   check(await supabase
     .from("pantry_items")
     .update({ quantity: num(fd, "quantity"), updated_at: new Date().toISOString() })

@@ -2,7 +2,7 @@
 
 import { useOptimistic, useState, type HTMLAttributes, type Ref } from "react";
 import { SaveError as SaveErrorText, fd, useAction } from "@/components/use-action";
-import { CATEGORIES, categoryLabel, fmtQty, unitLabel, type PantryItem } from "@/lib/types";
+import { CATEGORIES, UNITS, categoryLabel, fmtQty, unitFactor, unitLabel, type PantryItem } from "@/lib/types";
 import {
   addIngredientToList,
   deletePantryItem,
@@ -23,15 +23,18 @@ export type DragHandle = { ref: Ref<HTMLButtonElement>; props: HTMLAttributes<HT
 // ---------------------------------------------------------------------------
 
 export function PantryCard({ item, handle, overlay }: { item: PantryItem; handle?: DragHandle; overlay?: boolean }) {
-  const { name, unit } = item.ingredients;
-  const [quantity, setOptimisticQuantity] = useOptimistic(item.quantity === null ? null : Number(item.quantity));
+  const { name } = item.ingredients;
+  const [{ quantity, unit }, setOptimistic] = useOptimistic({
+    quantity: item.quantity === null ? null : Number(item.quantity),
+    unit: item.ingredients.unit,
+  });
   const [editing, setEditing] = useState(false);
   const { failed, run } = useAction();
 
-  const saveQuantity = (value: number | null) =>
+  const saveQuantity = (value: number | null, newUnit: string = unit) =>
     run(async () => {
-      setOptimisticQuantity(value);
-      await setPantryQuantity(fd({ id: item.id, quantity: value }));
+      setOptimistic({ quantity: value, unit: newUnit });
+      await setPantryQuantity(fd({ id: item.id, ingredient_id: item.ingredient_id, quantity: value, unit: newUnit }));
     });
 
   const counted = COUNT_UNITS.has(unit) && quantity !== null;
@@ -62,9 +65,9 @@ export function PantryCard({ item, handle, overlay }: { item: PantryItem; handle
           initial={quantity}
           unit={unit}
           onCancel={() => setEditing(false)}
-          onSave={(v) => {
+          onSave={(v, u) => {
             setEditing(false);
-            saveQuantity(v);
+            saveQuantity(v, u);
           }}
         />
       ) : counted ? (
@@ -90,11 +93,11 @@ export function PantryCard({ item, handle, overlay }: { item: PantryItem; handle
         </button>
       )}
 
-      {!overlay && (
+      {!overlay && !editing && (
         <ItemMenu item={item} run={run}>
           {(close) => (
             <>
-              <MenuButton onClick={() => { close(); setEditing(true); }}>✏️ Edit amount</MenuButton>
+              <MenuButton onClick={() => { close(); setEditing(true); }}>✏️ Edit amount or unit</MenuButton>
               <MenuButton onClick={() => { close(); run(() => markRanOut(fd({ id: item.id }))); }}>🚫 Ran out</MenuButton>
             </>
           )}
@@ -131,9 +134,9 @@ export function RanOutCard({ item, onList }: { item: PantryItem; onList: boolean
           unit={unit}
           saveLabel="Restock"
           onCancel={() => setRestocking(false)}
-          onSave={(v) => {
+          onSave={(v, u) => {
             setRestocking(false);
-            run(() => restockItem(fd({ ingredient_id: item.ingredient_id, quantity: v })));
+            run(() => restockItem(fd({ ingredient_id: item.ingredient_id, quantity: v, unit: u })));
           }}
         />
       ) : (
@@ -168,44 +171,73 @@ export function RanOutCard({ item, onList }: { item: PantryItem; onList: boolean
 
 function AmountEditor({
   initial,
-  unit,
+  unit: initialUnit,
   onSave,
   onCancel,
   saveLabel = "✓",
 }: {
   initial: number | null;
   unit: string;
-  onSave: (value: number | null) => void;
+  onSave: (value: number | null, unit: string) => void;
   onCancel: () => void;
   saveLabel?: string;
 }) {
   const [value, setValue] = useState(initial === null ? "" : String(initial));
-  const submit = () => onSave(value.trim() === "" ? null : Math.max(0, Number(value)));
+  const [unit, setUnit] = useState(initialUnit);
+  const submit = () => onSave(value.trim() === "" ? null : Math.max(0, Number(value)), unit);
+
+  function changeUnit(next: string) {
+    // Show the same amount in the new unit when they convert (450 g -> 0.45 kg).
+    const factor = unitFactor(unit, next);
+    if (factor !== null && value.trim() !== "") setValue(String(Number((Number(value) * factor).toPrecision(6))));
+    setUnit(next);
+  }
+
+  const converts = unitFactor(initialUnit, unit) !== null;
+
   return (
     <form
-      className="flex items-center gap-1"
+      className="flex basis-full flex-col items-end gap-1 sm:basis-auto"
       onSubmit={(e) => {
         e.preventDefault();
         submit();
       }}
     >
-      <input
-        className="input w-20 px-2 py-1.5 text-right"
-        type="number"
-        step="any"
-        min="0"
-        inputMode="decimal"
-        placeholder="some"
-        value={value}
-        autoFocus
-        onFocus={(e) => e.currentTarget.select()}
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={(e) => e.key === "Escape" && onCancel()}
-        aria-label="Amount"
-      />
-      <span className="text-sm text-muted">{unitLabel(unit)}</span>
-      <button type="submit" className="btn-primary px-3 py-1.5">{saveLabel}</button>
-      <button type="button" className="btn px-2 py-1.5 text-muted" onClick={onCancel} aria-label="Cancel">✕</button>
+      <div className="flex items-center gap-1">
+        <input
+          className="input w-20 px-2 py-1.5 text-right"
+          type="number"
+          step="any"
+          min="0"
+          inputMode="decimal"
+          placeholder="some"
+          value={value}
+          autoFocus
+          onFocus={(e) => e.currentTarget.select()}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => e.key === "Escape" && onCancel()}
+          aria-label="Amount"
+        />
+        <select
+          className="input w-auto px-1 py-1.5 text-sm"
+          value={unit}
+          onChange={(e) => changeUnit(e.target.value)}
+          onKeyDown={(e) => e.key === "Escape" && onCancel()}
+          aria-label="Unit"
+        >
+          {[...new Set([initialUnit, ...UNITS])].map((u) => (
+            <option key={u} value={u}>{unitLabel(u)}</option>
+          ))}
+        </select>
+        <button type="submit" className="btn-primary px-3 py-1.5">{saveLabel}</button>
+        <button type="button" className="btn px-2 py-1.5 text-muted" onClick={onCancel} aria-label="Cancel">✕</button>
+      </div>
+      {unit !== initialUnit && (
+        <p className="max-w-72 text-right text-xs text-muted">
+          From now on counted in <b>{unitLabel(unit)}</b>
+          {converts ? "" : " — enter how much you have in the new unit"}. Recipes keep their own units.
+        </p>
+      )}
     </form>
   );
 }
