@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useOptimistic, useRef, useState, type HTMLAttributes, type ReactNode, type Ref } from "react";
+import { useEffect, useOptimistic, useRef, useState, useTransition, type HTMLAttributes, type ReactNode, type Ref } from "react";
 import { SaveError as SaveErrorText, fd, useAction } from "@/components/use-action";
 import { CATEGORIES, UNITS, categoryLabel, fmtQty, unitFactor, unitLabel, type PantryItem } from "@/lib/types";
 import {
   addIngredientToList,
   deletePantryItem,
   markRanOut,
+  renameIngredient,
   restockItem,
   setAutoRestock,
   setIngredientCategory,
@@ -35,7 +36,8 @@ export function PantryCard({
   overlay?: boolean;
   layout?: PantryLayout;
 }) {
-  const { name } = item.ingredients;
+  const rename = useRename(item);
+  const name = rename.name;
   const [{ quantity, unit }, setOptimistic] = useOptimistic({
     quantity: item.quantity === null ? null : Number(item.quantity),
     unit: item.ingredients.unit,
@@ -114,8 +116,8 @@ export function PantryCard({
     );
   }
 
-  const menu = !overlay && !editing && (
-    <ItemMenu item={item} run={run}>
+  const menu = !overlay && !editing && !rename.renaming && (
+    <ItemMenu item={item} run={run} onRename={rename.start}>
       {(close) => (
         <>
           <MenuButton onClick={() => { close(); setEditing(true); }}>✏️ Edit amount or unit</MenuButton>
@@ -132,10 +134,12 @@ export function PantryCard({
       <div className={`flex h-full flex-col gap-1 p-1.5 ${frame}`}>
         <div className="flex items-center gap-0.5">
           {dragHandle}
-          <div className="line-clamp-2 min-w-0 flex-1 text-sm leading-tight font-medium" title={name}>
-            {item.auto_restock && <span title="Auto-adds to the shopping list when it runs out">🔁 </span>}
-            {name}
-          </div>
+          {rename.editor ?? (
+            <div className="line-clamp-2 min-w-0 flex-1 text-sm leading-tight font-medium" title={name}>
+              {item.auto_restock && <span title="Auto-adds to the shopping list when it runs out">🔁 </span>}
+              {name}
+            </div>
+          )}
           {menu}
         </div>
         <div className="mt-auto">{amount}</div>
@@ -147,10 +151,12 @@ export function PantryCard({
   return (
     <div className={`flex flex-wrap items-center gap-2 py-2.5 pr-2 pl-1 ${frame}`}>
       {dragHandle}
-      <div className="min-w-0 flex-1">
-        <div className="truncate font-medium">{name}</div>
-        {item.auto_restock && <div className="text-xs text-accent">🔁 Auto-adds to list</div>}
-      </div>
+      {rename.editor ?? (
+        <div className="min-w-0 flex-1">
+          <div className="truncate font-medium">{name}</div>
+          {item.auto_restock && <div className="text-xs text-accent">🔁 Auto-adds to list</div>}
+        </div>
+      )}
       {amount}
       {menu}
       {failed && <SaveErrorText className="basis-full pl-8" />}
@@ -163,7 +169,9 @@ export function PantryCard({
 // ---------------------------------------------------------------------------
 
 export function RanOutCard({ item, onList, layout = "list" }: { item: PantryItem; onList: boolean; layout?: PantryLayout }) {
-  const { name, unit } = item.ingredients;
+  const { unit } = item.ingredients;
+  const rename = useRename(item);
+  const name = rename.name;
   const [restocking, setRestocking] = useState(false);
   const { pending, failed, run } = useAction();
 
@@ -186,14 +194,16 @@ export function RanOutCard({ item, onList, layout = "list" }: { item: PantryItem
     return (
       <div className="flex h-full flex-col gap-1 rounded-2xl border border-dashed border-border bg-surface/60 p-1.5 pl-2.5">
         <div className="flex items-start gap-1">
-          <div className="min-w-0 flex-1 pt-0.5">
-            <div className="line-clamp-2 text-sm leading-tight font-medium text-muted" title={name}>{name}</div>
-            <div className="text-[11px] text-muted">
-              {usually}
-              {item.auto_restock && " · 🔁"}
+          {rename.editor ?? (
+            <div className="min-w-0 flex-1 pt-0.5">
+              <div className="line-clamp-2 text-sm leading-tight font-medium text-muted" title={name}>{name}</div>
+              <div className="text-[11px] text-muted">
+                {usually}
+                {item.auto_restock && " · 🔁"}
+              </div>
             </div>
-          </div>
-          {!restocking && <ItemMenu item={item} run={run} removeLabel="🗑️ Forget this item" />}
+          )}
+          {!restocking && !rename.renaming && <ItemMenu item={item} run={run} onRename={rename.start} removeLabel="🗑️ Forget this item" />}
         </div>
         {restocking ? (
           editor
@@ -225,17 +235,19 @@ export function RanOutCard({ item, onList, layout = "list" }: { item: PantryItem
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-dashed border-border bg-surface/60 py-2.5 pr-2 pl-3">
       {/* min width so the buttons wrap onto their own line on narrow screens instead of squeezing the text */}
-      <div className="min-w-44 flex-1">
-        <div className="truncate font-medium text-muted">{name}</div>
-        <div className="text-xs text-muted">
-          {usually}
-          {item.auto_restock && " · 🔁 auto-adds"}
+      {rename.editor ?? (
+        <div className="min-w-44 flex-1">
+          <div className="truncate font-medium text-muted">{name}</div>
+          <div className="text-xs text-muted">
+            {usually}
+            {item.auto_restock && " · 🔁 auto-adds"}
+          </div>
         </div>
-      </div>
+      )}
 
       {restocking ? (
         editor
-      ) : (
+      ) : rename.renaming ? null : (
         <div className="ml-auto flex items-center gap-2">
           {onList ? (
             <span className="rounded-full bg-accent-soft px-3 py-1.5 text-xs font-medium text-accent">✓ On list</span>
@@ -252,7 +264,7 @@ export function RanOutCard({ item, onList, layout = "list" }: { item: PantryItem
           <button type="button" onClick={() => setRestocking(true)} className="rounded-full bg-accent px-3 py-1.5 text-xs font-medium text-white dark:text-black">
             Restock
           </button>
-          <ItemMenu item={item} run={run} removeLabel="🗑️ Forget this item" />
+          <ItemMenu item={item} run={run} onRename={rename.start} removeLabel="🗑️ Forget this item" />
         </div>
       )}
 
@@ -338,6 +350,87 @@ function AmountEditor({
   );
 }
 
+/**
+ * Renaming an ingredient from its card. Shows the new name straight away; if the save fails
+ * (e.g. the name is already taken) the editor reopens with the attempted name and the reason.
+ */
+function useRename(item: PantryItem) {
+  const [name, setOptimisticName] = useOptimistic(item.ingredients.name);
+  const [renaming, setRenaming] = useState(false);
+  const [draft, setDraft] = useState<string>();
+  const [error, setError] = useState<string>();
+  const [, start] = useTransition();
+
+  function save(next: string) {
+    const clean = next.trim().replace(/\s+/g, " ");
+    setRenaming(false);
+    if (!clean || clean === item.ingredients.name) {
+      setError(undefined);
+      return;
+    }
+    start(async () => {
+      setOptimisticName(clean);
+      let message: string | undefined;
+      try {
+        const res = await renameIngredient(item.ingredient_id, clean);
+        if ("error" in res) message = res.error;
+      } catch {
+        message = "Couldn't save — check your connection and try again.";
+      }
+      setError(message);
+      if (message) {
+        setDraft(clean);
+        setRenaming(true);
+      }
+    });
+  }
+
+  function cancel() {
+    setRenaming(false);
+    setError(undefined);
+    setDraft(undefined);
+  }
+
+  const editor = renaming ? (
+    <NameEditor initial={draft ?? item.ingredients.name} error={error} onSave={save} onCancel={cancel} />
+  ) : null;
+
+  return { name, renaming, editor, start: () => setRenaming(true) };
+}
+
+function NameEditor({ initial, error, onSave, onCancel }: { initial: string; error?: string; onSave: (name: string) => void; onCancel: () => void }) {
+  const [value, setValue] = useState(initial);
+  return (
+    <form
+      className="flex min-w-0 flex-1 basis-full flex-col gap-1"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSave(value);
+      }}
+    >
+      <div className="flex items-center gap-1">
+        <input
+          className="input min-w-0 flex-1 px-2 py-1.5"
+          value={value}
+          maxLength={80}
+          autoFocus
+          onFocus={(e) => e.currentTarget.select()}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => e.key === "Escape" && onCancel()}
+          aria-label="Ingredient name"
+        />
+        <button type="submit" className="btn-primary px-3 py-1.5" aria-label="Save name">✓</button>
+        <button type="button" className="btn px-2 py-1.5 text-muted" onClick={onCancel} aria-label="Cancel rename">✕</button>
+      </div>
+      {error ? (
+        <p role="alert" className="text-xs text-danger">{error}</p>
+      ) : (
+        <p className="text-xs text-muted">Also renames it in your recipes and shopping list.</p>
+      )}
+    </form>
+  );
+}
+
 function MenuButton({ children, onClick, danger }: { children: ReactNode; onClick: () => void; danger?: boolean }) {
   return (
     <button type="button" onClick={onClick} className={`w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-background ${danger ? "text-danger" : ""}`}>
@@ -351,11 +444,13 @@ const MENU_WIDTH = 240;
 function ItemMenu({
   item,
   run,
+  onRename,
   children,
   removeLabel = "🗑️ Remove from pantry",
 }: {
   item: PantryItem;
   run: (fn: () => Promise<unknown>) => void;
+  onRename: () => void;
   children?: (close: () => void) => ReactNode;
   removeLabel?: string;
 }) {
@@ -409,6 +504,7 @@ function ItemMenu({
         <>
           <div className="fixed inset-0 z-40" onClick={close} aria-hidden />
           <div role="menu" style={{ top: position.top, left: position.left, width: MENU_WIDTH }} className="fixed z-50 rounded-xl border border-border bg-surface p-1 shadow-xl">
+            <MenuButton onClick={() => { close(); onRename(); }}>🏷️ Rename</MenuButton>
             {children?.(close)}
             <MenuButton
               onClick={() => {

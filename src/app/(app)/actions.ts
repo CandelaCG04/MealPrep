@@ -86,6 +86,25 @@ export async function setIngredientCategory(fd: FormData) {
   refreshAll();
 }
 
+/** Rename an ingredient everywhere (pantry, recipes, shopping list). */
+export async function renameIngredient(ingredientId: string, name: string): Promise<{ error: string } | { ok: true }> {
+  const clean = name.trim().replace(/\s+/g, " ");
+  if (!clean) return { error: "Give it a name." };
+  try {
+    const supabase = await db();
+    const { error } = await supabase.from("ingredients").update({ name: clean }).eq("id", ingredientId);
+    if (error) {
+      // unique (user_id, name_key): another ingredient already has this name
+      if (error.code === "23505") return { error: `You already have an ingredient called "${clean}".` };
+      return { error: error.message };
+    }
+  } catch {
+    return { error: "Couldn't save — check your connection and try again." };
+  }
+  refreshAll();
+  return { ok: true };
+}
+
 /** Save the order of one pantry category after drag and drop (items dropped in join that category). */
 export async function reorderPantry(category: string, itemIds: string[]) {
   const supabase = await db();
