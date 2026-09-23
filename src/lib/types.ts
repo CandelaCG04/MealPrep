@@ -100,6 +100,8 @@ export type PantryItem = {
   location: Location;
   auto_restock: boolean;
   usual_quantity: number | null;
+  /** Counts as running low at or below this amount (null = only when it runs out). */
+  low_at: number | null;
   position: number;
   expires_on: string | null;
   updated_at: string;

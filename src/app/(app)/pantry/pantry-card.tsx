@@ -5,6 +5,7 @@ import { SaveError as SaveErrorText, fd, useAction } from "@/components/use-acti
 import { CATEGORIES, UNITS, categoryLabel, fmtQty, unitFactor, unitLabel, type PantryItem } from "@/lib/types";
 import {
   addIngredientToList,
+  setLowAt,
   deletePantryItem,
   markRanOut,
   renameIngredient,
@@ -29,12 +30,15 @@ export function PantryCard({
   handle,
   overlay,
   layout = "list",
+  onList = false,
 }: {
   item: PantryItem;
   /** Omitted when dragging isn't available (e.g. while searching). */
   handle?: DragHandle;
   overlay?: boolean;
   layout?: PantryLayout;
+  /** Already on the shopping list. */
+  onList?: boolean;
 }) {
   const rename = useRename(item);
   const name = rename.name;
@@ -43,8 +47,12 @@ export function PantryCard({
     unit: item.ingredients.unit,
   });
   const [editing, setEditing] = useState(false);
+  const [settingLow, setSettingLow] = useState(false);
   const { failed, run } = useAction();
   const grid = layout === "grid";
+  const lowAt = item.low_at === null ? null : Number(item.low_at);
+  const isLow = quantity !== null && quantity > 0 && lowAt !== null && quantity <= lowAt;
+  const autoNote = item.auto_restock ? (lowAt ? `Auto-adds below ${fmtQty(lowAt, unit)}` : "Auto-adds when out") : null;
 
   const saveQuantity = (value: number | null, newUnit: string = unit) =>
     run(async () => {
@@ -69,6 +77,18 @@ export function PantryCard({
   ) : (
     <span className={grid ? "w-0.5" : "w-2"} />
   );
+
+  const lowEditor = settingLow ? (
+    <LowEditor
+      initial={lowAt}
+      unit={unit}
+      onCancel={() => setSettingLow(false)}
+      onSave={(value) => {
+        setSettingLow(false);
+        run(() => setLowAt(fd({ id: item.id, low_at: value })));
+      }}
+    />
+  ) : null;
 
   let amount: ReactNode;
   if (editing) {
@@ -116,11 +136,26 @@ export function PantryCard({
     );
   }
 
-  const menu = !overlay && !editing && !rename.renaming && (
+  const menu = !overlay && !editing && !settingLow && !rename.renaming && (
     <ItemMenu item={item} run={run} onRename={rename.start}>
       {(close) => (
         <>
           <MenuButton onClick={() => { close(); setEditing(true); }}>✏️ Edit amount or unit</MenuButton>
+          {onList ? (
+            <MenuButton onClick={close}>✓ Already on the shopping list</MenuButton>
+          ) : (
+            <MenuButton
+              onClick={() => {
+                close();
+                run(() => addIngredientToList(fd({ ingredient_id: item.ingredient_id, name, quantity: item.usual_quantity })));
+              }}
+            >
+              🛒 Add to shopping list
+            </MenuButton>
+          )}
+          <MenuButton onClick={() => { close(); setSettingLow(true); }}>
+            🔔 Running low at: <b>{lowAt ? fmtQty(lowAt, unit) : "when it runs out"}</b>
+          </MenuButton>
           <MenuButton onClick={() => { close(); run(() => markRanOut(fd({ id: item.id }))); }}>🚫 Ran out</MenuButton>
         </>
       )}
@@ -136,13 +171,14 @@ export function PantryCard({
           {dragHandle}
           {rename.editor ?? (
             <div className="line-clamp-2 min-w-0 flex-1 text-sm leading-tight font-medium" title={name}>
-              {item.auto_restock && <span title="Auto-adds to the shopping list when it runs out">🔁 </span>}
+              {isLow && <LowBadge />}
               {name}
             </div>
           )}
           {menu}
         </div>
-        <div className="mt-auto">{amount}</div>
+        <div className="mt-auto">{lowEditor ?? amount}</div>
+        {autoNote && !settingLow && <div className="text-[11px] text-accent">🔁 {autoNote}</div>}
         {failed && <SaveErrorText />}
       </div>
     );
@@ -153,11 +189,14 @@ export function PantryCard({
       {dragHandle}
       {rename.editor ?? (
         <div className="min-w-0 flex-1">
-          <div className="truncate font-medium">{name}</div>
-          {item.auto_restock && <div className="text-xs text-accent">🔁 Auto-adds to list</div>}
+          <div className="truncate font-medium">
+            {isLow && <LowBadge />}
+            {name}
+          </div>
+          {autoNote && <div className="text-xs text-accent">🔁 {autoNote}</div>}
         </div>
       )}
-      {amount}
+      {lowEditor ?? amount}
       {menu}
       {failed && <SaveErrorText className="basis-full pl-8" />}
     </div>
@@ -427,6 +466,60 @@ function NameEditor({ initial, error, onSave, onCancel }: { initial: string; err
       ) : (
         <p className="text-xs text-muted">Also renames it in your recipes and shopping list.</p>
       )}
+    </form>
+  );
+}
+
+function LowBadge() {
+  return (
+    <span className="mr-1 rounded-full bg-warn-soft px-1.5 py-0.5 align-middle text-[10px] font-semibold text-warn" title="Running low">
+      LOW
+    </span>
+  );
+}
+
+/** Sets the level at which an item counts as running low (empty = only when it runs out). */
+function LowEditor({
+  initial,
+  unit,
+  onSave,
+  onCancel,
+}: {
+  initial: number | null;
+  unit: string;
+  onSave: (value: number | null) => void;
+  onCancel: () => void;
+}) {
+  const [value, setValue] = useState(initial === null ? "" : String(initial));
+  return (
+    <form
+      className="flex basis-full flex-col items-end gap-1 sm:basis-auto"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSave(value.trim() === "" ? null : Math.max(0, Number(value)));
+      }}
+    >
+      <div className="flex items-center gap-1">
+        <span className="text-xs text-muted">Add to list below</span>
+        <input
+          className="input w-20 px-2 py-1.5 text-right"
+          type="number"
+          step="any"
+          min="0"
+          inputMode="decimal"
+          placeholder="—"
+          value={value}
+          autoFocus
+          onFocus={(e) => e.currentTarget.select()}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => e.key === "Escape" && onCancel()}
+          aria-label="Running low at"
+        />
+        <span className="text-sm text-muted">{unitLabel(unit)}</span>
+        <button type="submit" className="btn-primary px-3 py-1.5">✓</button>
+        <button type="button" className="btn px-2 py-1.5 text-muted" onClick={onCancel} aria-label="Cancel">✕</button>
+      </div>
+      <p className="max-w-72 text-right text-xs text-muted">Leave empty to add it only when it runs out.</p>
     </form>
   );
 }

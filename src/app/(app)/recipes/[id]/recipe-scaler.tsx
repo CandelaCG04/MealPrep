@@ -6,6 +6,7 @@ import { fmtQty, unitLabel, type Ingredient, type RecipeIngredientStatus, type R
 import { planRecipe } from "../../actions";
 import { Submit } from "@/components/submit";
 import { MadeFrom, type SourceWithName } from "./made-from";
+import { renderStep } from "@/lib/steps";
 import { CookSection, type Unmeasured } from "./cook-section";
 
 type Shortfall = {
@@ -99,6 +100,13 @@ export function RecipeScaler({
   const scaled = amount !== base;
 
   const step = (delta: number) => setAmount((a) => Math.max(1, a + delta));
+
+  /** Amount of an ingredient at the chosen portions, for the {{amount}} bits inside steps. */
+  const amountOf = (ingredientId: string) => {
+    const line = lines.find((l) => l.ingredient_id === ingredientId);
+    if (!line) return null;
+    return line.quantity === null ? "some" : fmtQty(Number(line.quantity) * factor, line.unit);
+  };
 
   return (
     <>
@@ -228,7 +236,7 @@ export function RecipeScaler({
           <h2 className="mb-2 font-semibold">Steps</h2>
           <p className="mb-2 text-xs text-muted">
             Tap a step to tick it off while you cook.
-            {scaled && ` Amounts written in the steps are for ${base} ${unitWord}.`}
+            {scaled && ` Highlighted amounts follow the portions; any you typed by hand are for ${base} ${unitWord}.`}
           </p>
           <ol className="card flex flex-col gap-1 p-2">
             {recipe.steps.map((stepText, i) => {
@@ -248,7 +256,15 @@ export function RecipeScaler({
                     >
                       {isDone ? "✓" : i + 1}
                     </span>
-                    <span className={`pt-0.5 leading-relaxed whitespace-pre-line ${isDone ? "line-through" : ""}`}>{stepText}</span>
+                    <span className={`pt-0.5 leading-relaxed whitespace-pre-line ${isDone ? "line-through" : ""}`}>
+                      {renderStep(stepText, amountOf).map((part, j) =>
+                        part.kind === "amount" ? (
+                          <b key={j} className={isDone ? "" : "text-accent"}>{part.text}</b>
+                        ) : (
+                          <span key={j}>{part.text}</span>
+                        ),
+                      )}
+                    </span>
                   </button>
                 </li>
               );

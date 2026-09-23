@@ -101,7 +101,7 @@ export function PantryView({
         </div>
       </div>
 
-      <PantryBoard items={inStock} categories={categories} layout={view} collapsed={collapsed} onToggleCategory={toggle} matches={matches} />
+      <PantryBoard items={inStock} categories={categories} layout={view} collapsed={collapsed} onToggleCategory={toggle} matches={matches} listed={listed} />
 
       {shownRanOut.length > 0 && (
         <section>

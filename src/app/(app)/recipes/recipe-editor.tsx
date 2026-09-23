@@ -7,6 +7,7 @@ import { UnitHint } from "./unit-hint";
 import { fmtMinutes } from "@/lib/dates";
 import { IngredientInput } from "@/components/ingredient-input";
 import { DragGrip, SortableList } from "@/components/sortable-list";
+import { amountToken } from "@/lib/steps";
 
 type Line = RecipeInput["ingredients"][number] & { key: string };
 type Step = { key: string; text: string };
@@ -188,7 +189,7 @@ export function RecipeEditor({
       </div>
 
       {/* Steps */}
-      <StepsEditor steps={steps} setSteps={setSteps} />
+      <StepsEditor steps={steps} setSteps={setSteps} ingredientNames={lines.map((l) => l.name.trim()).filter(Boolean)} />
 
       <div className="card">
         <label className="label" htmlFor="notes">Notes</label>
@@ -212,8 +213,9 @@ function NumberField({ id, label, value, onChange, min = 0 }: { id: string; labe
   );
 }
 
-function StepsEditor({ steps, setSteps }: { steps: Step[]; setSteps: (s: Step[]) => void }) {
+function StepsEditor({ steps, setSteps, ingredientNames }: { steps: Step[]; setSteps: (s: Step[]) => void; ingredientNames: string[] }) {
   const refs = useRef(new Map<string, HTMLTextAreaElement>());
+  const [focused, setFocused] = useState<string | null>(null);
   // One-shot: which step to focus after the next render (set when adding/removing steps).
   // Cleared once used, so typing in any step never moves the cursor.
   const pendingFocus = useRef<string | null>(null);
@@ -235,6 +237,21 @@ function StepsEditor({ steps, setSteps }: { steps: Step[]; setSteps: (s: Step[])
     pendingFocus.current = added[added.length - 1].key;
   }
 
+  /** Drops "{{Ingredient}}" into a step at the cursor; it becomes the scaled amount on the recipe page. */
+  function insertAmount(stepKey: string, ingredient: string) {
+    const el = refs.current.get(stepKey);
+    if (!el) return;
+    el.focus();
+    const token = amountToken(ingredient);
+    // execCommand keeps the caret and the browser's undo history; fall back to a plain splice.
+    if (!document.execCommand?.("insertText", false, token)) {
+      const { selectionStart: from, selectionEnd: to, value } = el;
+      const text = value.slice(0, from) + token + value.slice(to);
+      setSteps(steps.map((x) => (x.key === stepKey ? { ...x, text } : x)));
+      requestAnimationFrame(() => el.setSelectionRange(from + token.length, from + token.length));
+    }
+  }
+
   function remove(index: number) {
     if (steps.length === 1) return setSteps([{ ...steps[0], text: "" }]);
     setSteps(steps.filter((_, i) => i !== index));
@@ -249,6 +266,11 @@ function StepsEditor({ steps, setSteps }: { steps: Step[]; setSteps: (s: Step[])
           Enter starts a new step · Shift+Enter for a line break · pasting a whole method splits it into steps
           {steps.length > 1 && " · drag ⠿ to reorder"}
         </p>
+        {ingredientNames.length > 0 && (
+          <p className="text-xs text-muted">
+            Tap an ingredient below a step to drop its amount in — it follows the portions on the recipe page.
+          </p>
+        )}
       </div>
       <SortableList
         id="recipe-steps"
@@ -256,7 +278,7 @@ function StepsEditor({ steps, setSteps }: { steps: Step[]; setSteps: (s: Step[])
         items={steps}
         onReorder={setSteps}
         className="flex flex-col gap-2"
-        itemClassName="flex items-start gap-1.5"
+        itemClassName="flex flex-wrap items-start gap-1.5"
         renderItem={(s, index, handle) => (
           <>
             <DragGrip {...handle} label={`Drag step ${index + 1}`} className="mt-1 h-8 w-6" />
@@ -270,6 +292,7 @@ function StepsEditor({ steps, setSteps }: { steps: Step[]; setSteps: (s: Step[])
                 autoGrow(el);
               }}
               onInput={(e) => autoGrow(e.currentTarget)}
+              onFocus={() => setFocused(s.key)}
               className="input min-h-10 resize-none [field-sizing:content]"
               rows={1}
               placeholder={index === 0 ? "e.g. Preheat the oven to 200°C" : "Next step"}
@@ -297,6 +320,25 @@ function StepsEditor({ steps, setSteps }: { steps: Step[]; setSteps: (s: Step[])
               }}
             />
             <button type="button" className="btn mt-1 h-7 w-7 shrink-0 p-0 text-muted" onClick={() => remove(index)} aria-label={`Remove step ${index + 1}`}>✕</button>
+            {focused === s.key && ingredientNames.length > 0 && (
+              <div className="mt-1 flex basis-full flex-wrap gap-1 pl-14">
+                <span className="self-center text-xs text-muted">Insert amount:</span>
+                {ingredientNames.map((ingredient) => (
+                  <button
+                    key={ingredient}
+                    type="button"
+                    className="rounded-full border border-border bg-background px-2 py-0.5 text-xs hover:border-accent"
+                    // mousedown fires before the textarea loses focus, so the caret is still where the user left it
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      insertAmount(s.key, ingredient);
+                    }}
+                  >
+                    {ingredient}
+                  </button>
+                ))}
+              </div>
+            )}
           </>
         )}
       />

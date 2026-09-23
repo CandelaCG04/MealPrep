@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { Conversion, Ingredient, RecipeIngredientStatus, RecipeSummary } from "@/lib/types";
 import { RecipeEditor } from "../../recipe-editor";
+import { stepsToEditable } from "@/lib/steps";
 
 export default async function EditRecipePage({ params }: PageProps<"/recipes/[id]/edit">) {
   const { id } = await params;
@@ -31,7 +32,7 @@ export default async function EditRecipePage({ params }: PageProps<"/recipes/[id
           prep_minutes: recipe.prep_minutes,
           cook_minutes: recipe.cook_minutes,
           freezable: recipe.freezable,
-          steps: recipe.steps,
+          steps: stepsToEditable(recipe.steps, lines ?? []),
           source_url: recipe.source_url,
           notes: recipe.notes,
           ingredients: (lines ?? []).map((l) => ({

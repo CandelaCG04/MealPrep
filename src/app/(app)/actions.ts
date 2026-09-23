@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { parsePantryText, parseRecipe, type ParsedRecipe, type RecipeSource } from "@/lib/ai";
 import { stockUnitFor, unitFactor, type Conversion, type Ingredient } from "@/lib/types";
+import { stepsToStored } from "@/lib/steps";
 
 function str(fd: FormData, key: string) {
   const v = fd.get(key);
@@ -118,6 +119,17 @@ export async function markRanOut(fd: FormData) {
   check(await supabase
     .from("pantry_items")
     .update({ quantity: 0, updated_at: new Date().toISOString() })
+    .eq("id", str(fd, "id")));
+  refreshAll();
+}
+
+/** Level at which an item counts as running low (blank = only when it runs out). Turns auto-add on. */
+export async function setLowAt(fd: FormData) {
+  const supabase = await db();
+  const low = num(fd, "low_at");
+  check(await supabase
+    .from("pantry_items")
+    .update({ low_at: low, auto_restock: true, updated_at: new Date().toISOString() })
     .eq("id", str(fd, "id")));
   refreshAll();
 }
@@ -307,12 +319,14 @@ export async function saveRecipe(input: RecipeInput): Promise<{ error: string } 
     //    ingredients is harmless if a later step fails; nothing existing is changed here.
     type Row = { ingredient_id: string; quantity: number | null; unit: string; note: string | null; optional: boolean; position: number };
     const rows = new Map<string, Row>();
+    const idsByName = new Map<string, string>(); // for {{Name}} amount tokens in the steps
     for (const line of input.ingredients) {
       if (!line.name.trim()) continue;
       const unit = line.unit || "pc";
       const quantity = typeof line.quantity === "number" && line.quantity > 0 ? line.quantity : null;
       // A new ingredient's pantry unit comes from the recipe line (spoons/cups become ml).
       const ingredientId = await ensureIngredient(line.name, stockUnitFor(unit), line.category);
+      idsByName.set(line.name.trim().toLowerCase(), ingredientId);
       const existing = rows.get(ingredientId);
       if (existing) {
         // Same ingredient listed twice: merge, converting units where possible.
@@ -328,7 +342,7 @@ export async function saveRecipe(input: RecipeInput): Promise<{ error: string } 
     // 2. Save the recipe and all its lines in one transaction: if anything fails, nothing changes.
     const { data, error } = await supabase.rpc("save_recipe", {
       p_recipe_id: input.id ?? null,
-      p_fields: fields,
+      p_fields: { ...fields, steps: stepsToStored(fields.steps, idsByName) },
       p_lines: [...rows.values()],
     });
     if (error) return { error: `Couldn't save — your recipe wasn't changed. (${error.message})` };
