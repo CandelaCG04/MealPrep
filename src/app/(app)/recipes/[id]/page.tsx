@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import type { Ingredient, IngredientSource, RecipeIngredientStatus, RecipeSummary } from "@/lib/types";
+import type { CookingSession, Ingredient, IngredientSource, RecipeIngredientStatus, RecipeSummary } from "@/lib/types";
 import type { SourceWithName } from "./made-from";
 import { deleteRecipe } from "../../actions";
 import { Submit } from "@/components/submit";
@@ -21,12 +21,13 @@ function TimeChip({ label, minutes, strong }: { label: string; minutes: number |
 export default async function RecipePage({ params }: PageProps<"/recipes/[id]">) {
   const { id } = await params;
   const supabase = await createClient();
-  const [{ data: recipe }, { data: lines }, { count: planCount }, { data: catalog }, { data: sourceRows }] = await Promise.all([
+  const [{ data: recipe }, { data: lines }, { count: planCount }, { data: catalog }, { data: sourceRows }, { data: session }] = await Promise.all([
     supabase.from("recipe_summary").select("*").eq("id", id).maybeSingle<RecipeSummary>(),
     supabase.from("recipe_ingredient_status").select("*").eq("recipe_id", id).order("position").returns<RecipeIngredientStatus[]>(),
     supabase.from("planned_meals").select("id", { count: "exact", head: true }).eq("recipe_id", id),
     supabase.from("ingredients").select("id, name, unit, category").order("name").returns<Ingredient[]>(),
     supabase.from("ingredient_sources").select("id, ingredient_id, amount, unit, source_ingredient_id, source_amount, source_unit").returns<IngredientSource[]>(),
+    supabase.from("cooking_sessions").select("*").eq("recipe_id", id).maybeSingle<CookingSession>(),
   ]);
   if (!recipe) notFound();
 
@@ -60,7 +61,7 @@ export default async function RecipePage({ params }: PageProps<"/recipes/[id]">)
         </p>
       </div>
 
-      <RecipeScaler recipe={recipe} ingredients={lines ?? []} planCount={planCount ?? 0} sources={sources} catalog={catalog ?? []} />
+      <RecipeScaler recipe={recipe} ingredients={lines ?? []} planCount={planCount ?? 0} sources={sources} catalog={catalog ?? []} session={session ?? null} />
 
       <form action={deleteRecipe}>
         <input type="hidden" name="id" value={recipe.id} />

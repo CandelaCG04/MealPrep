@@ -440,6 +440,37 @@ export async function unplanMeal(fd: FormData) {
   refreshAll();
 }
 
+// ---------------------------------------------------------------------------
+// Cooking in progress (long waits: marinating, proving, resting)
+// ---------------------------------------------------------------------------
+
+/** Start cooking a recipe: remembers the portions and which steps you tick off. */
+export async function startCooking(recipeId: string, batches: number) {
+  const supabase = await db();
+  check(await supabase.from("cooking_sessions").upsert({ recipe_id: recipeId, batches }, { onConflict: "recipe_id" }));
+  refreshAll();
+}
+
+export async function setCookingSteps(sessionId: string, doneSteps: number[]) {
+  const supabase = await db();
+  check(await supabase.from("cooking_sessions").update({ done_steps: doneSteps }).eq("id", sessionId));
+  refreshAll();
+}
+
+/** "Back in 2 h" marker while something marinates; null clears it. */
+export async function setCookingTimer(sessionId: string, minutes: number | null) {
+  const supabase = await db();
+  const waitUntil = minutes === null ? null : new Date(Date.now() + minutes * 60_000).toISOString();
+  check(await supabase.from("cooking_sessions").update({ wait_until: waitUntil }).eq("id", sessionId));
+  refreshAll();
+}
+
+export async function cancelCooking(sessionId: string) {
+  const supabase = await db();
+  check(await supabase.from("cooking_sessions").delete().eq("id", sessionId));
+  refreshAll();
+}
+
 /** Cook: deducts ingredients, clears a plan, optionally freezes portions, and marks ticked items as ran out. */
 export async function cookRecipe(fd: FormData) {
   const supabase = await db();

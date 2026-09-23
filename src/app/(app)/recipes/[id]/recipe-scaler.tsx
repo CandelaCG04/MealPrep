@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { fmtQty, unitLabel, type Ingredient, type RecipeIngredientStatus, type RecipeSummary } from "@/lib/types";
-import { planRecipe } from "../../actions";
+import { fmtQty, unitLabel, type CookingSession, type Ingredient, type RecipeIngredientStatus, type RecipeSummary } from "@/lib/types";
+import { cancelCooking, planRecipe, setCookingSteps, setCookingTimer, startCooking } from "../../actions";
+import { fmtClock, fmtSince, fmtUntil } from "@/lib/dates";
+import { useAction } from "@/components/use-action";
 import { Submit } from "@/components/submit";
 import { MadeFrom, type SourceWithName } from "./made-from";
 import { renderStep } from "@/lib/steps";
@@ -75,24 +77,29 @@ export function RecipeScaler({
   planCount,
   sources,
   catalog,
+  session,
 }: {
   recipe: RecipeSummary;
   ingredients: RecipeIngredientStatus[];
   planCount: number;
   sources: Record<string, SourceWithName>;
   catalog: Ingredient[];
+  /** Set while this recipe is being cooked (steps ticked so far, optional timer). */
+  session: CookingSession | null;
 }) {
   const base = recipe.servings ?? 1;
   const unitWord = recipe.servings ? "portions" : "batches";
-  const [amount, setAmount] = useState(base);
-  const [done, setDone] = useState<Set<number>>(new Set());
+  const [amount, setAmount] = useState(session ? Math.max(1, Math.round(Number(session.batches) * base)) : base);
+  const [done, setDone] = useState<Set<number>>(new Set(session?.done_steps ?? []));
+  const cooking = useAction();
   const [editingSource, setEditingSource] = useState<string | null>(null);
-  const toggleStep = (i: number) =>
-    setDone((d) => {
-      const next = new Set(d);
-      if (!next.delete(i)) next.add(i);
-      return next;
-    });
+  const toggleStep = (i: number) => {
+    const next = new Set(done);
+    if (!next.delete(i)) next.add(i);
+    setDone(next);
+    // While cooking, remember the ticks so you can close the app mid-marinade.
+    if (session) cooking.run(() => setCookingSteps(session.id, [...next].sort((a, b) => a - b)));
+  };
   const factor = amount / base;
 
   const lines = ingredients.map((l) => ({ ...l, ...shortfall(l, factor) }));
@@ -101,11 +108,13 @@ export function RecipeScaler({
 
   const step = (delta: number) => setAmount((a) => Math.max(1, a + delta));
 
-  /** Amount of an ingredient at the chosen portions, for the {{amount}} bits inside steps. */
+  /** "60 ml soy sauce" for the ingredient bits inside steps, scaled to the chosen portions. */
   const amountOf = (ingredientId: string) => {
     const line = lines.find((l) => l.ingredient_id === ingredientId);
     if (!line) return null;
-    return line.quantity === null ? "some" : fmtQty(Number(line.quantity) * factor, line.unit);
+    // Names are stored capitalised ("Soy sauce"); mid-sentence they read better in lower case.
+    const name = /^[A-Z][a-z]/.test(line.name) ? line.name[0].toLowerCase() + line.name.slice(1) : line.name;
+    return line.quantity === null ? name : `${fmtQty(Number(line.quantity) * factor, line.unit)} ${name}`;
   };
 
   return (
@@ -233,7 +242,20 @@ export function RecipeScaler({
 
       {recipe.steps.length > 0 && (
         <section>
-          <h2 className="mb-2 font-semibold">Steps</h2>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="font-semibold">Steps</h2>
+            {!session && (
+              <button
+                type="button"
+                className="btn-ghost py-1.5 text-sm"
+                onClick={() => cooking.run(() => startCooking(recipe.id, factor))}
+                title="Keeps your ticked steps and a timer, for recipes with long waits"
+              >
+                ▶️ Start cooking
+              </button>
+            )}
+          </div>
+          {session && <CookingBanner session={session} doneCount={done.size} total={recipe.steps.length} run={cooking.run} />}
           <p className="mb-2 text-xs text-muted">
             Tap a step to tick it off while you cook.
             {scaled && ` Highlighted amounts follow the portions; any you typed by hand are for ${base} ${unitWord}.`}
@@ -289,5 +311,58 @@ export function RecipeScaler({
         unmeasured={unmeasuredIngredients(lines, sources)}
       />
     </>
+  );
+}
+
+/** While a recipe is in progress: when it started, how far along, and an optional "back in…" timer. */
+function CookingBanner({
+  session,
+  doneCount,
+  total,
+  run,
+}: {
+  session: CookingSession;
+  doneCount: number;
+  total: number;
+  run: (fn: () => Promise<unknown>) => void;
+}) {
+  const left = session.wait_until ? fmtUntil(session.wait_until) : null;
+  const ready = session.wait_until !== null && left === null;
+
+  return (
+    <div className={`mb-2 flex flex-col gap-2 rounded-2xl border p-3 text-sm ${ready ? "border-accent bg-accent-soft" : "border-border bg-surface"}`}>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span className="font-medium">🍳 Cooking</span>
+        <span className="text-muted">
+          started {fmtSince(session.started_at)} · {doneCount} of {total} steps
+        </span>
+      </div>
+      {session.wait_until && (
+        <p className={ready ? "font-medium text-accent" : "text-muted"}>
+          {ready ? "⏰ Wait is over — carry on." : `⏲ Back in ${left} (around ${fmtClock(session.wait_until)})`}
+        </p>
+      )}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-xs text-muted">{session.wait_until ? "Change timer:" : "Set a timer:"}</span>
+        {[15, 30, 60, 120, 480].map((minutes) => (
+          <button
+            key={minutes}
+            type="button"
+            className="rounded-full border border-border bg-background px-2 py-1 text-xs hover:border-accent"
+            onClick={() => run(() => setCookingTimer(session.id, minutes))}
+          >
+            {minutes < 60 ? `${minutes} min` : `${minutes / 60} h`}
+          </button>
+        ))}
+        {session.wait_until && (
+          <button type="button" className="px-1 text-xs text-muted underline" onClick={() => run(() => setCookingTimer(session.id, null))}>
+            clear
+          </button>
+        )}
+        <button type="button" className="ml-auto px-1 text-xs text-muted underline" onClick={() => run(() => cancelCooking(session.id))}>
+          Stop cooking
+        </button>
+      </div>
+    </div>
   );
 }

@@ -29,3 +29,20 @@ export function freezerTone(days: number) {
   if (days >= 60) return "soon";
   return "fresh";
 }
+
+/** "just now" / "25 min ago" / "2 h ago" / "3 days ago" */
+export function fmtSince(iso: string) {
+  const minutes = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  if (minutes < 2) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  if (minutes < 60 * 36) return `${fmtMinutes(Math.round(minutes / 15) * 15)} ago`;
+  return `${Math.round(minutes / 1440)} days ago`;
+}
+
+/** How long until a timer is up, or null once it is. */
+export function fmtUntil(iso: string) {
+  const minutes = Math.round((new Date(iso).getTime() - Date.now()) / 60000);
+  return minutes <= 0 ? null : fmtMinutes(Math.max(1, minutes));
+}
+
+export const fmtClock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });

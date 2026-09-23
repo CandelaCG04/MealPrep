@@ -268,7 +268,7 @@ function StepsEditor({ steps, setSteps, ingredientNames }: { steps: Step[]; setS
         </p>
         {ingredientNames.length > 0 && (
           <p className="text-xs text-muted">
-            Tap an ingredient below a step to drop its amount in — it follows the portions on the recipe page.
+            Tap an ingredient below a step to drop in its amount and name (e.g. 60 ml soy sauce) — it follows the portions on the recipe page.
           </p>
         )}
       </div>

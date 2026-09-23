@@ -180,6 +180,16 @@ export type FrozenMeal = {
   notes: string | null;
 };
 
+/** A recipe you've started cooking (marinating, proving, resting…). */
+export type CookingSession = {
+  id: string;
+  recipe_id: string;
+  batches: number;
+  done_steps: number[];
+  wait_until: string | null;
+  started_at: string;
+};
+
 export type PlannedMeal = {
   id: string;
   recipe_id: string;
