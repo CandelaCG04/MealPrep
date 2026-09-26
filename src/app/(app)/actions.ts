@@ -465,6 +465,13 @@ export async function setCookingTimer(sessionId: string, minutes: number | null)
   refreshAll();
 }
 
+/** Switch between prepping / waiting / cooking (null pauses); banks the time spent in the previous phase. */
+export async function setCookingPhase(sessionId: string, phase: "prep" | "wait" | "cook" | null) {
+  const supabase = await db();
+  check(await supabase.rpc("set_cooking_phase", { p_session: sessionId, p_phase: phase }));
+  refreshAll();
+}
+
 export async function cancelCooking(sessionId: string) {
   const supabase = await db();
   check(await supabase.from("cooking_sessions").delete().eq("id", sessionId));
@@ -480,6 +487,7 @@ export async function cookRecipe(fd: FormData) {
     p_batches: num(fd, "batches") ?? 1,
     p_freeze_portions: num(fd, "freeze_portions") ?? 0,
     p_ran_out: ranOut,
+    p_fridge_portions: num(fd, "fridge_portions") ?? 0,
   }));
   refreshAll();
 }

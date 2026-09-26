@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
-import { fmtQty, unitLabel, type CookingSession, type Ingredient, type RecipeIngredientStatus, type RecipeSummary } from "@/lib/types";
-import { cancelCooking, planRecipe, setCookingSteps, setCookingTimer, startCooking } from "../../actions";
-import { fmtClock, fmtSince, fmtUntil } from "@/lib/dates";
+import { useEffect, useState } from "react";
+import { PHASES, fmtQty, unitLabel, type CookPhase, type CookingSession, type Ingredient, type RecipeIngredientStatus, type RecipeSummary } from "@/lib/types";
+import { cancelCooking, planRecipe, setCookingPhase, setCookingSteps, setCookingTimer, startCooking } from "../../actions";
+import { fmtClock, fmtMinutes, fmtSince, fmtUntil } from "@/lib/dates";
 import { useAction } from "@/components/use-action";
 import { Submit } from "@/components/submit";
 import { MadeFrom, type SourceWithName } from "./made-from";
@@ -337,6 +337,8 @@ function CookingBanner({
           started {fmtSince(session.started_at)} · {doneCount} of {total} steps
         </span>
       </div>
+
+      <PhaseTracker session={session} run={run} />
       {session.wait_until && (
         <p className={ready ? "font-medium text-accent" : "text-muted"}>
           {ready ? "⏰ Wait is over — carry on." : `⏲ Back in ${left} (around ${fmtClock(session.wait_until)})`}
@@ -363,6 +365,64 @@ function CookingBanner({
           Stop cooking
         </button>
       </div>
+    </div>
+  );
+}
+
+/** Seconds banked in each phase, plus the stretch running right now. */
+function phaseSeconds(session: CookingSession, now: number) {
+  const banked = { prep: session.prep_seconds, wait: session.wait_seconds, cook: session.cook_seconds };
+  if (session.phase && session.phase_started_at) {
+    banked[session.phase] += Math.max(0, Math.round((now - new Date(session.phase_started_at).getTime()) / 1000));
+  }
+  return banked;
+}
+
+const asMinutes = (seconds: number) => (seconds < 60 ? "under a minute" : fmtMinutes(Math.round(seconds / 60)));
+
+/** What you're doing right now (prepping / waiting / cooking) and how long each has taken. */
+function PhaseTracker({ session, run }: { session: CookingSession; run: (fn: () => Promise<unknown>) => void }) {
+  // Re-render every 15 s so the running phase keeps counting up.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!session.phase) return;
+    const timer = setInterval(() => setNow(Date.now()), 15_000);
+    return () => clearInterval(timer);
+  }, [session.phase]);
+
+  const seconds = phaseSeconds(session, now);
+  const totalSeconds = seconds.prep + seconds.wait + seconds.cook;
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex flex-wrap gap-1.5">
+        {PHASES.map(({ key, label, icon }) => {
+          const active = session.phase === key;
+          return (
+            <button
+              key={key}
+              type="button"
+              aria-pressed={active}
+              onClick={() => run(() => setCookingPhase(session.id, active ? null : (key as CookPhase)))}
+              title={active ? "Tap again to pause the clock" : `Start timing ${label.toLowerCase()}`}
+              className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                active ? "border-accent bg-accent text-white dark:text-black" : "border-border bg-background hover:border-accent"
+              }`}
+            >
+              {icon} {label}
+              {seconds[key] > 0 && <span className={active ? "" : "text-muted"}> · {asMinutes(seconds[key])}</span>}
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-xs text-muted">
+        {session.phase
+          ? `Timing ${PHASES.find((p) => p.key === session.phase)?.label.toLowerCase()} — tap it again to pause.`
+          : totalSeconds > 0
+            ? "Paused. Tap a phase to carry on timing."
+            : "Tap what you're doing so the app learns how long this recipe takes you."}
+        {totalSeconds > 0 && ` Total so far ${asMinutes(totalSeconds)}.`}
+      </p>
     </div>
   );
 }

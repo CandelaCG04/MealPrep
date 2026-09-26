@@ -22,6 +22,16 @@ export function CookSection({
   freezeDefault: number;
   unmeasured: Unmeasured[];
 }) {
+  // Portions split between the fridge and the freezer; the rest is eaten now.
+  const [fridge, setFridge] = useState(0);
+  const [freeze, setFreeze] = useState(freezeDefault);
+  const [portionsSeen, setPortionsSeen] = useState(amount);
+  if (portionsSeen !== amount) {
+    // Portions changed on the scaler — start the split over.
+    setPortionsSeen(amount);
+    setFridge(0);
+    setFreeze(freezeDefault);
+  }
   const [asking, setAsking] = useState(false);
   const [done, setDone] = useState<string>();
   const [error, setError] = useState<string>();
@@ -43,6 +53,7 @@ export function CookSection({
       <h2 className="font-semibold">I cooked this</h2>
       <p className="mb-3 text-sm text-muted">
         Deducts the ingredients for {amount} {unitWord} from the pantry and clears one plan.
+        {fridge > 0 && " Fridge portions are added to your pantry as a cooked meal."}
       </p>
       <form
         action={cook}
@@ -60,8 +71,33 @@ export function CookSection({
         <input type="hidden" name="batches" value={factor} />
         <div className="flex flex-wrap items-end gap-3">
           <div>
-            <label className="label" htmlFor="freeze_portions">Portions to freeze</label>
-            <input key={amount} className="input w-32" id="freeze_portions" name="freeze_portions" type="number" min="0" defaultValue={freezeDefault} />
+            <label className="label" htmlFor="fridge_portions">🍲 To the fridge</label>
+            <input
+              className="input w-32"
+              id="fridge_portions"
+              name="fridge_portions"
+              type="number"
+              min="0"
+              value={fridge}
+              onChange={(e) => {
+                const next = Math.max(0, Number(e.target.value) || 0);
+                setFridge(next);
+                // Don't let the two together promise more portions than were cooked.
+                setFreeze((f) => Math.min(f, Math.max(0, freezeDefault - next)));
+              }}
+            />
+          </div>
+          <div>
+            <label className="label" htmlFor="freeze_portions">🧊 To the freezer</label>
+            <input
+              className="input w-32"
+              id="freeze_portions"
+              name="freeze_portions"
+              type="number"
+              min="0"
+              value={freeze}
+              onChange={(e) => setFreeze(Math.max(0, Number(e.target.value) || 0))}
+            />
           </div>
           {!asking && (
             <Submit className="btn-primary" pendingText="Saving…">

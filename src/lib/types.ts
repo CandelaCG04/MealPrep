@@ -181,6 +181,14 @@ export type FrozenMeal = {
 };
 
 /** A recipe you've started cooking (marinating, proving, resting…). */
+export type CookPhase = "prep" | "wait" | "cook";
+
+export const PHASES: { key: CookPhase; label: string; icon: string }[] = [
+  { key: "prep", label: "Prepping", icon: "🔪" },
+  { key: "wait", label: "Waiting", icon: "⏳" },
+  { key: "cook", label: "Cooking", icon: "🔥" },
+];
+
 export type CookingSession = {
   id: string;
   recipe_id: string;
@@ -188,6 +196,23 @@ export type CookingSession = {
   done_steps: number[];
   wait_until: string | null;
   started_at: string;
+  /** Which phase is running now (null = paused), and when it started. */
+  phase: CookPhase | null;
+  phase_started_at: string | null;
+  prep_seconds: number;
+  wait_seconds: number;
+  cook_seconds: number;
+};
+
+/** How long this recipe usually takes you, averaged over the times you've cooked it. */
+export type RecipeTimeStats = {
+  recipe_id: string;
+  cooks: number;
+  avg_prep_seconds: number;
+  avg_wait_seconds: number;
+  avg_cook_seconds: number;
+  avg_total_seconds: number;
+  last_cooked_at: string;
 };
 
 export type PlannedMeal = {

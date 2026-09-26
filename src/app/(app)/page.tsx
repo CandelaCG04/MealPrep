@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { ageLabel, daysSince, freezerTone, fmtClock, fmtSince, fmtUntil } from "@/lib/dates";
-import type { CookingSession, FrozenMeal, RecipeSummary } from "@/lib/types";
+import { PHASES, type CookingSession, type FrozenMeal, type RecipeSummary } from "@/lib/types";
 
 export default async function Home() {
   const supabase = await createClient();
@@ -36,7 +36,7 @@ export default async function Home() {
                     <div className="flex-1">
                       <div className="font-medium">{s.recipes.title}</div>
                       <div className="text-sm text-muted">
-                        started {fmtSince(s.started_at)} · {s.done_steps.length} of {s.recipes.steps.length} steps
+                        {s.phase ? `${PHASES.find((ph) => ph.key === s.phase)?.icon} ${PHASES.find((ph) => ph.key === s.phase)?.label.toLowerCase()}` : `started ${fmtSince(s.started_at)}`} · {s.done_steps.length} of {s.recipes.steps.length} steps
                         {s.wait_until && (ready ? " · ⏰ wait is over" : ` · ⏲ back in ${left} (${fmtClock(s.wait_until)})`)}
                       </div>
                     </div>
