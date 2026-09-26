@@ -11,7 +11,7 @@ const TABS = [
   { href: "/shopping", label: "Shopping", icon: "🛒" },
 ];
 
-export function Nav({ shoppingCount }: { shoppingCount: number }) {
+export function Nav({ shoppingBadge }: { shoppingBadge: React.ReactNode }) {
   const pathname = usePathname();
 
   return (
@@ -29,11 +29,7 @@ export function Nav({ shoppingCount }: { shoppingCount: number }) {
               >
                 <span className="text-xl md:text-base">{tab.icon}</span>
                 {tab.label}
-                {tab.href === "/shopping" && shoppingCount > 0 && (
-                  <span className="absolute top-1 right-[calc(50%-1.5rem)] rounded-full bg-accent px-1.5 text-[10px] leading-4 font-semibold text-white md:static dark:text-black">
-                    {shoppingCount}
-                  </span>
-                )}
+                {tab.href === "/shopping" && shoppingBadge}
               </Link>
             </li>
           );
