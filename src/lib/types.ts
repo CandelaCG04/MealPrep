@@ -162,6 +162,9 @@ export type ShoppingListRow = {
   planned_short: boolean;
   manual: boolean;
   restock: boolean;
+  /** What the list works out on its own, before any adjustment. */
+  suggested: number | null;
+  adjusted: boolean;
 };
 
 export type ShoppingExtra = {

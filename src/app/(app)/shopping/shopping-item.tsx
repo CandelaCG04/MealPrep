@@ -2,7 +2,7 @@
 
 import { useOptimistic, useState } from "react";
 import { fmtQty, unitFactor, unitLabel, type ShoppingListRow } from "@/lib/types";
-import { buyItem, removeFromList } from "../actions";
+import { buyItem, removeFromList, setBuyAmount } from "../actions";
 import { SaveError, fd, useAction } from "@/components/use-action";
 
 /** Units packages come in: the item's own unit plus convertible ones among g/kg/ml/l (no spoons or cups). */
@@ -25,6 +25,7 @@ export function ShoppingItem({ item, reason }: { item: ShoppingListRow; reason: 
   if (hidden) return null;
 
   const listed = item.to_buy === null ? null : Number(item.to_buy);
+  const suggested = item.suggested === null ? null : Number(item.suggested);
 
   return (
     <li className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
@@ -43,15 +44,27 @@ export function ShoppingItem({ item, reason }: { item: ShoppingListRow; reason: 
           <button
             type="button"
             onClick={() => setEditing((e) => !e)}
-            className="ml-1 rounded-md px-1 text-muted underline decoration-dotted underline-offset-4 hover:bg-background hover:text-foreground"
-            aria-label={`Bought a different amount of ${item.name}`}
+            className={`ml-1 rounded-md px-1 underline decoration-dotted underline-offset-4 hover:bg-background hover:text-foreground ${
+              item.adjusted ? "text-accent" : "text-muted"
+            }`}
+            aria-label={`Change how much ${item.name} to buy`}
             aria-expanded={editing}
-            title="Bought a different amount?"
+            title="Change how much to buy"
           >
             {listed !== null ? fmtQty(listed, item.unit) : "some"} ✏️
           </button>
         </div>
-        {reason && <div className="text-xs text-muted">{reason}</div>}
+        {(reason || item.adjusted) && (
+          <div className="text-xs text-muted">
+            {item.adjusted && (
+              <span className="text-accent">
+                your amount{suggested !== null && ` · list says ${fmtQty(suggested, item.unit)}`}
+              </span>
+            )}
+            {item.adjusted && reason && " · "}
+            {reason}
+          </div>
+        )}
       </div>
 
       {(item.manual || item.restock) && !item.planned_short && (
@@ -68,12 +81,16 @@ export function ShoppingItem({ item, reason }: { item: ShoppingListRow; reason: 
       )}
 
       {editing && (
-        <DifferentAmount
+        <AmountPanel
           item={item}
           onCancel={() => setEditing(false)}
           onBuy={(amount) => {
             setEditing(false);
             buy(amount);
+          }}
+          onSave={(amount) => {
+            setEditing(false);
+            run(() => setBuyAmount(item.ingredient_id, amount));
           }}
         />
       )}
@@ -82,28 +99,41 @@ export function ShoppingItem({ item, reason }: { item: ShoppingListRow; reason: 
   );
 }
 
-function DifferentAmount({ item, onBuy, onCancel }: { item: ShoppingListRow; onBuy: (amount: number | null) => void; onCancel: () => void }) {
+/** How much to buy: keep it for the shop, or tick it off as bought right away. */
+function AmountPanel({
+  item,
+  onBuy,
+  onSave,
+  onCancel,
+}: {
+  item: ShoppingListRow;
+  onBuy: (amount: number | null) => void;
+  onSave: (amount: number | null) => void;
+  onCancel: () => void;
+}) {
   const [value, setValue] = useState(item.to_buy === null ? "" : String(Number(item.to_buy)));
   const [unit, setUnit] = useState(item.unit);
   const units = buyUnits(item.unit);
 
   const entered = value.trim() === "" ? null : Number(value);
   const inStockUnit = entered === null ? null : entered * (unitFactor(unit, item.unit) ?? 1);
-  const needed = item.to_buy === null ? null : Number(item.to_buy);
-  const short = item.planned_short && needed !== null && inStockUnit !== null && inStockUnit < needed;
+  const suggested = item.suggested === null ? null : Number(item.suggested);
+  // Buying less than the plan is short of leaves the rest on the list.
+  const short = item.planned_short && suggested !== null && inStockUnit !== null && inStockUnit < suggested;
+  const valid = inStockUnit === null || inStockUnit >= 0;
 
   return (
     <form
       className="basis-full rounded-xl bg-background p-3 sm:ml-10"
       onSubmit={(e) => {
         e.preventDefault();
-        if (inStockUnit === null || inStockUnit >= 0) onBuy(inStockUnit);
+        if (valid) onSave(inStockUnit);
       }}
     >
-      <label className="label" htmlFor={`bought-${item.ingredient_id}`}>How much did you buy?</label>
+      <label className="label" htmlFor={`buy-${item.ingredient_id}`}>How much do you want to buy?</label>
       <div className="flex flex-wrap items-center gap-2">
         <input
-          id={`bought-${item.ingredient_id}`}
+          id={`buy-${item.ingredient_id}`}
           className="input w-24 py-1.5 text-right"
           type="number"
           step="any"
@@ -123,17 +153,26 @@ function DifferentAmount({ item, onBuy, onCancel }: { item: ShoppingListRow; onB
         ) : (
           <span className="text-sm text-muted">{unitLabel(unit)}</span>
         )}
-        <span className="flex items-center gap-1">
-          <button type="submit" className="btn-primary py-1.5">Bought</button>
+        <span className="flex flex-wrap items-center gap-1">
+          <button type="submit" className="btn-primary py-1.5" disabled={!valid}>
+            Save
+          </button>
+          <button type="button" className="btn py-1.5" disabled={!valid} onClick={() => onBuy(inStockUnit)}>
+            Bought it
+          </button>
           <button type="button" className="btn px-2 py-1.5 text-muted" onClick={onCancel} aria-label="Cancel">✕</button>
         </span>
       </div>
       <p className="mt-2 text-xs text-muted">
         {unit !== item.unit && inStockUnit !== null && `= ${fmtQty(inStockUnit, item.unit)} in the pantry. `}
-        {short
-          ? `That's less than needed — the remaining ${fmtQty(needed - inStockUnit, item.unit)} stays on the list.`
-          : "Adds it to the pantry and ticks it off."}
+        <b>Save</b> keeps this amount on the list for when you shop. <b>Bought it</b> adds it to the pantry and ticks it off
+        {short && ` — the remaining ${fmtQty(suggested - inStockUnit, item.unit)} stays on the list`}.
       </p>
+      {item.adjusted && (
+        <button type="button" className="mt-1 text-xs text-accent underline" onClick={() => onSave(null)}>
+          Back to {suggested === null ? "no set amount" : fmtQty(suggested, item.unit)}
+        </button>
+      )}
     </form>
   );
 }

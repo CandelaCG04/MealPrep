@@ -499,7 +499,17 @@ export async function cookRecipe(fd: FormData) {
 /** Tick an item off: it goes into the pantry, and so disappears from the derived list. */
 export async function buyItem(fd: FormData) {
   const supabase = await db();
-  check(await supabase.rpc("add_stock", { p_ingredient_id: str(fd, "ingredient_id"), p_amount: num(fd, "amount") }));
+  const ingredientId = str(fd, "ingredient_id");
+  check(await supabase.rpc("add_stock", { p_ingredient_id: ingredientId, p_amount: num(fd, "amount") }));
+  // The adjusted amount was for this shop; whatever's left should be worked out afresh.
+  check(await supabase.from("shopping_overrides").delete().eq("ingredient_id", ingredientId));
+  refreshAll();
+}
+
+/** Buy a different amount than the list worked out, without buying it yet. Null puts the worked-out amount back. */
+export async function setBuyAmount(ingredientId: string, amount: number | null) {
+  const supabase = await db();
+  check(await supabase.rpc("set_buy_amount", { p_ingredient_id: ingredientId, p_amount: amount }));
   refreshAll();
 }
 
