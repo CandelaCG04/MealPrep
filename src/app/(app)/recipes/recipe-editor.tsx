@@ -8,6 +8,7 @@ import { fmtMinutes } from "@/lib/dates";
 import { IngredientInput } from "@/components/ingredient-input";
 import { DragGrip, SortableList } from "@/components/sortable-list";
 import { amountToken } from "@/lib/steps";
+import { parseRecipeText } from "@/lib/recipe-text";
 
 type Line = RecipeInput["ingredients"][number] & { key: string };
 type Step = { key: string; text: string };
@@ -63,6 +64,29 @@ export function RecipeEditor({
     setSteps(toSteps(parsed.steps));
   }
 
+  // Free paste-in: fills what it recognises, keeps anything already typed.
+  const [pasted, setPasted] = useState("");
+  const [pasteResult, setPasteResult] = useState<string>();
+
+  function fillFromPaste() {
+    const parsed = parseRecipeText(pasted, catalog);
+    if (!parsed.ingredients.length && !parsed.steps.length) {
+      setPasteResult("Couldn't find ingredients or steps in that — try including the “Ingredients” and “Method” parts.");
+      return;
+    }
+    setRecipe((r) => ({
+      ...r,
+      title: parsed.title ?? r.title,
+      servings: parsed.servings ?? r.servings,
+      prep_minutes: parsed.prep_minutes ?? r.prep_minutes,
+      cook_minutes: parsed.cook_minutes ?? r.cook_minutes,
+    }));
+    setLines((ls) => [...ls.filter((l) => l.name.trim()), ...parsed.ingredients.map((i) => ({ ...i, key: newKey() }))]);
+    setSteps((ss) => toSteps([...ss.map((s) => s.text).filter((t) => t.trim()), ...parsed.steps]));
+    setPasted("");
+    setPasteResult(`Filled in ${parsed.ingredients.length} ingredients and ${parsed.steps.length} steps — check them below.`);
+  }
+
   const byName = new Map(catalog.map((i) => [i.name.toLowerCase(), i]));
 
   function updateLine(key: string, patch: Partial<Line>) {
@@ -97,6 +121,20 @@ export function RecipeEditor({
 
   return (
     <div className="flex flex-col gap-6">
+      {!initial?.id && (
+        <div className="card flex flex-col gap-3">
+          <div>
+            <h2 className="font-semibold">📋 Paste a recipe</h2>
+            <p className="text-sm text-muted">Copy a whole recipe (title, ingredients, method) and paste it here. You can review and fix everything before saving — or skip this and fill in the form yourself.</p>
+          </div>
+          <textarea className="input" rows={4} value={pasted} onChange={(e) => setPasted(e.target.value)} placeholder={"Chicken curry\nServes 4 · Prep 15 min · Cook 30 min\n\nIngredients\n500 g chicken thighs\n1 onion, chopped\n…\n\nMethod\n1. Fry the onion…"} />
+          <div className="flex items-center gap-3">
+            <button type="button" className="btn-primary" disabled={!pasted.trim()} onClick={fillFromPaste}>Fill in</button>
+            {pasteResult && <span className="text-sm text-accent">{pasteResult}</span>}
+          </div>
+        </div>
+      )}
+
       {!initial?.id && aiEnabled && (
         <form action={importAction} className="card flex flex-col gap-3" onSubmit={shrinkPhoto}>
           <div>
