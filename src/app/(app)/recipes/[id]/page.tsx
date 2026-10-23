@@ -6,7 +6,7 @@ import type { SourceWithName } from "./made-from";
 import { deleteRecipe } from "../../actions";
 import { Submit } from "@/components/submit";
 import { RecipeScaler } from "./recipe-scaler";
-import { fmtMinutes, totalMinutes } from "@/lib/dates";
+import { fmtMinutes, secondsToMinutes, totalMinutes } from "@/lib/dates";
 
 function TimeChip({ label, minutes, strong }: { label: string; minutes: number | null; strong?: boolean }) {
   if (!minutes) return null;
@@ -46,27 +46,27 @@ export default async function RecipePage({ params }: PageProps<"/recipes/[id]">)
       <div>
         <Link href="/recipes" className="text-sm text-muted">‹ Recipes</Link>
         <h1 className="h1 mt-1">{recipe.title}</h1>
-        {totalMinutes(recipe) > 0 && (
-          <div className="mt-3 flex gap-2">
-            <TimeChip label="Prep" minutes={recipe.prep_minutes} />
-            <TimeChip label="Cook" minutes={recipe.cook_minutes} />
-            <TimeChip label="Total" minutes={totalMinutes(recipe)} strong />
-          </div>
-        )}
-        {stats && stats.cooks > 0 && (
-          <p className="mt-2 text-sm text-accent">
-            ⏱ Your average: <b>{fmtMinutes(Math.round(stats.avg_total_seconds / 60)) || "under a minute"}</b>
-            {" ("}
-            {[
-              stats.avg_prep_seconds && `${Math.round(stats.avg_prep_seconds / 60)} min prep`,
-              stats.avg_wait_seconds && `${Math.round(stats.avg_wait_seconds / 60)} min waiting`,
-              stats.avg_cook_seconds && `${Math.round(stats.avg_cook_seconds / 60)} min cooking`,
-            ]
-              .filter(Boolean)
-              .join(" · ")}
-            {") over "}
-            {stats.cooks} {stats.cooks === 1 ? "cook" : "cooks"}
-          </p>
+        {stats && stats.cooks > 0 ? (
+          <>
+            <div className="mt-3 flex gap-2">
+              <TimeChip label="Prep" minutes={secondsToMinutes(stats.avg_prep_seconds)} />
+              <TimeChip label="Wait" minutes={secondsToMinutes(stats.avg_wait_seconds)} />
+              <TimeChip label="Cook" minutes={secondsToMinutes(stats.avg_cook_seconds)} />
+              <TimeChip label="Total" minutes={secondsToMinutes(stats.avg_total_seconds)} strong />
+            </div>
+            <p className="mt-2 text-sm text-muted">
+              ⏱ Your average over {stats.cooks} {stats.cooks === 1 ? "cook" : "cooks"}
+              {totalMinutes(recipe) > 0 && ` · recipe says ${fmtMinutes(totalMinutes(recipe))}`}
+            </p>
+          </>
+        ) : (
+          totalMinutes(recipe) > 0 && (
+            <div className="mt-3 flex gap-2">
+              <TimeChip label="Prep" minutes={recipe.prep_minutes} />
+              <TimeChip label="Cook" minutes={recipe.cook_minutes} />
+              <TimeChip label="Total" minutes={totalMinutes(recipe)} strong />
+            </div>
+          )
         )}
         <p className="mt-2 text-muted">
           {recipe.freezable && "🧊 freezes well"}

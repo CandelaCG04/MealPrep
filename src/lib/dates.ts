@@ -10,6 +10,17 @@ export function totalMinutes(recipe: { prep_minutes: number | null; cook_minutes
   return (recipe.prep_minutes ?? 0) + (recipe.cook_minutes ?? 0);
 }
 
+/** Seconds -> whole minutes, never rounding real time down to nothing. */
+export const secondsToMinutes = (seconds: number) => (seconds > 0 ? Math.max(1, Math.round(seconds / 60)) : 0);
+
+/** Your average time once you've cooked it, otherwise what the recipe says. */
+export function expectedMinutes(
+  recipe: { prep_minutes: number | null; cook_minutes: number | null },
+  stats: { cooks: number; avg_total_seconds: number } | null | undefined,
+) {
+  return stats && stats.cooks > 0 ? secondsToMinutes(stats.avg_total_seconds) : totalMinutes(recipe);
+}
+
 export function daysSince(isoDate: string) {
   const then = new Date(isoDate + (isoDate.length === 10 ? "T00:00:00" : ""));
   return Math.floor((Date.now() - then.getTime()) / 86_400_000);

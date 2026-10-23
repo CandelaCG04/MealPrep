@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import type { RecipeSummary } from "@/lib/types";
-import { fmtMinutes, totalMinutes } from "@/lib/dates";
+import type { RecipeSummary, RecipeTimeStats } from "@/lib/types";
+import { expectedMinutes, fmtMinutes } from "@/lib/dates";
 
 const FILTERS = [
   { key: "all", label: "All" },
@@ -13,7 +13,11 @@ const FILTERS = [
 export default async function RecipesPage({ searchParams }: PageProps<"/recipes">) {
   const { filter = "all", q = "" } = (await searchParams) as { filter?: string; q?: string };
   const supabase = await createClient();
-  const { data } = await supabase.from("recipe_summary").select("*").order("title").returns<RecipeSummary[]>();
+  const [{ data }, { data: statRows }] = await Promise.all([
+    supabase.from("recipe_summary").select("*").order("title").returns<RecipeSummary[]>(),
+    supabase.from("recipe_time_stats").select("*").returns<RecipeTimeStats[]>(),
+  ]);
+  const stats = new Map((statRows ?? []).map((s) => [s.recipe_id, s]));
 
   const recipes = (data ?? [])
     .filter((r) => r.title.toLowerCase().includes(q.toLowerCase()))
@@ -51,13 +55,15 @@ export default async function RecipesPage({ searchParams }: PageProps<"/recipes"
 
       {recipes.length ? (
         <ul className="flex flex-col gap-2">
-          {recipes.map((r) => (
+          {recipes.map((r) => {
+            const minutes = expectedMinutes(r, stats.get(r.id));
+            return (
             <li key={r.id}>
               <Link href={`/recipes/${r.id}`} className="card flex items-center gap-3 transition hover:border-accent">
                 <div className="flex-1">
                   <div className="font-medium">{r.title}</div>
                   <div className="text-sm text-muted">
-                    {[r.servings && `${r.servings} portions`, totalMinutes(r) > 0 && `⏱ ${fmtMinutes(totalMinutes(r))}`, r.freezable && "🧊 freezable", r.planned && "📌 planned"]
+                    {[r.servings && `${r.servings} portions`, minutes > 0 && `⏱ ${fmtMinutes(minutes)}`, r.freezable && "🧊 freezable", r.planned && "📌 planned"]
                       .filter(Boolean)
                       .join(" · ")}
                   </div>
@@ -65,7 +71,8 @@ export default async function RecipesPage({ searchParams }: PageProps<"/recipes"
                 <Availability recipe={r} />
               </Link>
             </li>
-          ))}
+            );
+          })}
         </ul>
       ) : (
         <p className="text-muted">
